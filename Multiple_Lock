@@ -1,0 +1,515 @@
+###############################################################################
+# OwnerRez Lock Manager for Home Assistant
+# Version: 1.1.0
+# https://github.com/yourusername/ownerrez-lock-manager
+#
+# INSTALLATION:
+# 1. Add credentials to secrets.yaml:
+#    ownerrez_username: "your-email@example.com"
+#    ownerrez_token: "pt_your_token_here"
+#
+# 2. Place this file in: /config/packages/ownerrez_lock_manager.yaml
+#
+# 3. Enable packages in configuration.yaml:
+#    homeassistant:
+#      packages: !include_dir_named packages
+#
+# 4. Customize the settings below (search for "CUSTOMIZE")
+#
+# 5. Configure SINGLE or MULTIPLE lock mode (see below)
+#
+# 6. Restart Home Assistant
+###############################################################################
+
+###############################################################################
+# LOCK CONFIGURATION
+# Choose between SINGLE or MULTIPLE lock mode
+###############################################################################
+
+# OPTION 1: SINGLE LOCK MODE
+# Uncomment this section and comment out "MULTIPLE LOCK MODE" below
+# input_select:
+#   ownerrez_lock_mode:
+#     name: Lock Mode
+#     options:
+#       - single
+#     initial: single
+#     icon: mdi:lock
+
+# OPTION 2: MULTIPLE LOCK MODE (DEFAULT)
+# Keep this section uncommented for multiple locks
+# Comment out if using single lock mode
+input_select:
+  ownerrez_lock_mode:
+    name: Lock Mode
+    options:
+      - single
+      - multiple
+    initial: multiple  # ← CHANGE to 'single' if you only have one lock
+    icon: mdi:lock-multiple
+
+###############################################################################
+# LOCK ENTITY CONFIGURATION
+# CUSTOMIZE: Add all your lock entities here
+###############################################################################
+input_text:
+  ownerrez_lock_entities:
+    name: Lock Entities (comma-separated)
+    # Single lock example:
+    # initial: "lock.front_door"
+    # Multiple locks example:
+    initial: "lock.front_door,lock.back_door,lock.garage_door"  # ← CUSTOMIZE THIS
+    max: 255
+
+  # Code slot configuration for each lock (comma-separated, same order as locks)
+  ownerrez_lock_code_slots:
+    name: Lock Code Slots (comma-separated)
+    # Must match the number of locks above
+    initial: "5,5,5"  # ← CUSTOMIZE THIS (one slot per lock)
+    max: 100
+
+# RESTful API Integration - Fetches bookings from OwnerRez
+rest:
+  - resource: https://app.ownerrez.com/api/bookings
+    scan_interval: 3600  # Check every hour (3600 seconds)
+    headers:
+      Content-Type: application/json
+      Accept: application/json
+      User-Agent: Home Assistant OwnerRez Lock Manager v1.1
+    authentication: basic
+    username: !secret ownerrez_username
+    password: !secret ownerrez_token
+    params:
+      status: "confirmed"
+      from: "{{ now().strftime('%Y-%m-%d') }}"
+      to: "{{ (now() + timedelta(days=60)).strftime('%Y-%m-%d') }}"  # Look ahead 60 days
+    sensor:
+      - name: "OwnerRez Next Booking"
+        unique_id: ownerrez_next_booking
+        value_template: >
+          {% set bookings = value_json.items | default([]) %}
+          {% if bookings | length > 0 %}
+            {{ bookings[0].id }}
+          {% else %}
+            none
+          {% endif %}
+        json_attributes_path: "$.items[0]"
+        json_attributes:
+          - guestName
+          - arrival
+          - departure
+          - propertyId
+          - confirmationCode
+        icon: mdi:calendar-clock
+
+# Input Helpers - Store current booking information
+input_text:
+  ownerrez_current_guest_name:
+    name: Current Guest Name
+    icon: mdi:account
+    max: 100
+
+  ownerrez_current_lock_code:
+    name: Current Lock Code
+    mode: password
+    icon: mdi:lock
+    max: 4
+
+  ownerrez_current_booking_id:
+    name: Current Booking ID
+    icon: mdi:key-variant
+    max: 50
+
+input_datetime:
+  ownerrez_current_checkin:
+    name: Current Check-in Time
+    has_date: true
+    has_time: true
+
+  ownerrez_current_checkout:
+    name: Current Check-out Time
+    has_date: true
+    has_time: true
+
+input_boolean:
+  ownerrez_lock_code_active:
+    name: Lock Code Active
+    icon: mdi:lock-check
+
+# Sensor to track which locks have been successfully programmed
+template:
+  - sensor:
+      - name: "OwnerRez Locks Programmed"
+        unique_id: ownerrez_locks_programmed
+        state: >
+          {% if is_state('input_boolean.ownerrez_lock_code_active', 'on') %}
+            {{ states('input_text.ownerrez_lock_entities').split(',') | length }}
+          {% else %}
+            0
+          {% endif %}
+        attributes:
+          locks: >
+            {% if is_state('input_boolean.ownerrez_lock_code_active', 'on') %}
+              {{ states('input_text.ownerrez_lock_entities').split(',') }}
+            {% else %}
+              []
+            {% endif %}
+          mode: "{{ states('input_select.ownerrez_lock_mode') }}"
+        icon: mdi:lock-check
+
+# Automations
+automation:
+  ###############################################################################
+  # AUTOMATION 1: Sync Booking Data from OwnerRez
+  ###############################################################################
+  - id: ownerrez_sync_booking_data
+    alias: "OwnerRez: Sync Booking Data"
+    description: "Fetch and store next booking details from OwnerRez API"
+    mode: single
+    trigger:
+      # When sensor updates with new booking
+      - platform: state
+        entity_id: sensor.ownerrez_next_booking
+      # On Home Assistant startup
+      - platform: homeassistant
+        event: start
+      # Daily check at 6 AM
+      - platform: time
+        at: "06:00:00"
+    condition:
+      # Only process if we have a valid booking
+      - condition: template
+        value_template: "{{ states('sensor.ownerrez_next_booking') not in ['none', 'unavailable', 'unknown'] }}"
+      - condition: template
+        value_template: "{{ state_attr('sensor.ownerrez_next_booking', 'arrival') is not none }}"
+    action:
+      # Extract booking details into variables
+      - variables:
+          booking_id: "{{ states('sensor.ownerrez_next_booking') }}"
+          guest_name: "{{ state_attr('sensor.ownerrez_next_booking', 'guestName') }}"
+          arrival: "{{ state_attr('sensor.ownerrez_next_booking', 'arrival') }}"
+          departure: "{{ state_attr('sensor.ownerrez_next_booking', 'departure') }}"
+
+      # Store guest name
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.ownerrez_current_guest_name
+        data:
+          value: "{{ guest_name }}"
+
+      # Store booking ID
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.ownerrez_current_booking_id
+        data:
+          value: "{{ booking_id }}"
+
+      # Store check-in datetime
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.ownerrez_current_checkin
+        data:
+          datetime: "{{ arrival }}"
+
+      # Store check-out datetime
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.ownerrez_current_checkout
+        data:
+          datetime: "{{ departure }}"
+
+      # Generate random 4-digit code
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.ownerrez_current_lock_code
+        data:
+          value: "{{ range(1000, 9999) | random }}"
+
+      # Notify host about new booking sync
+      # CUSTOMIZE: Change notify service to match your setup
+      - service: notify.mobile_app  # ← CHANGE THIS to your notification service
+        data:
+          title: "✅ OwnerRez Booking Synced"
+          message: >
+            Guest: {{ guest_name }}
+            Check-in: {{ arrival | as_timestamp | timestamp_custom('%b %d at %I:%M %p') }}
+            Check-out: {{ departure | as_timestamp | timestamp_custom('%b %d at %I:%M %p') }}
+            Lock Code: {{ states('input_text.ownerrez_current_lock_code') }}
+            Mode: {{ states('input_select.ownerrez_lock_mode') | title }}
+          data:
+            tag: ownerrez_booking_sync
+            group: ownerrez
+
+  ###############################################################################
+  # AUTOMATION 2: Enable Lock Code at Check-in (SINGLE or MULTIPLE)
+  ###############################################################################
+  - id: ownerrez_enable_lock_code_checkin
+    alias: "OwnerRez: Enable Lock Code at Check-in"
+    description: "Activate guest lock code at scheduled check-in time on all configured locks"
+    mode: single
+    trigger:
+      # Check every minute if it's check-in time
+      - platform: time_pattern
+        minutes: "/1"
+    condition:
+      # Must have a guest name
+      - condition: template
+        value_template: "{{ states('input_text.ownerrez_current_guest_name') != '' }}"
+      # Lock code must not be active yet
+      - condition: state
+        entity_id: input_boolean.ownerrez_lock_code_active
+        state: "off"
+      # Current time matches check-in time (within 1 minute window)
+      - condition: template
+        value_template: >
+          {% set checkin = state_attr('input_datetime.ownerrez_current_checkin', 'timestamp') %}
+          {% set now_time = now().timestamp() %}
+          {{ (now_time >= checkin) and (now_time < checkin + 60) }}
+    action:
+      - variables:
+          lock_entities: "{{ states('input_text.ownerrez_lock_entities').split(',') }}"
+          code_slots: "{{ states('input_text.ownerrez_lock_code_slots').split(',') }}"
+          lock_code: "{{ states('input_text.ownerrez_current_lock_code') }}"
+
+      # Program all locks with the same code
+      - repeat:
+          count: "{{ lock_entities | length }}"
+          sequence:
+            - variables:
+                current_lock: "{{ lock_entities[repeat.index - 1] | trim }}"
+                current_slot: "{{ code_slots[repeat.index - 1] | trim | int }}"
+
+            # Set lock code for current lock
+            - service: lock.set_usercode
+              target:
+                entity_id: "{{ current_lock }}"
+              data:
+                code_slot: "{{ current_slot }}"
+                usercode: "{{ lock_code }}"
+
+            # Small delay between programming locks
+            - delay:
+                seconds: 2
+
+      # Mark code as active
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.ownerrez_lock_code_active
+
+      # Notify host that codes are active
+      # CUSTOMIZE: Change notify service
+      - service: notify.mobile_app  # ← CHANGE THIS
+        data:
+          title: "🔓 Guest Check-in Active"
+          message: >
+            {{ states('input_text.ownerrez_current_guest_name') }} can now check in.
+            Lock code {{ states('input_text.ownerrez_current_lock_code') }} programmed to {{ lock_entities | length }} lock(s):
+            {% for lock in lock_entities %}
+            • {{ lock | trim }}
+            {% endfor %}
+          data:
+            tag: ownerrez_checkin
+            group: ownerrez
+            actions:
+              - action: "URI"
+                title: "View Locks"
+                uri: "/lovelace/security"
+
+  ###############################################################################
+  # AUTOMATION 3: Disable Lock Code at Check-out (SINGLE or MULTIPLE)
+  ###############################################################################
+  - id: ownerrez_disable_lock_code_checkout
+    alias: "OwnerRez: Disable Lock Code at Check-out"
+    description: "Deactivate guest lock code at scheduled check-out time on all locks"
+    mode: single
+    trigger:
+      # Check every minute if it's check-out time
+      - platform: time_pattern
+        minutes: "/1"
+    condition:
+      # Lock code must be active
+      - condition: state
+        entity_id: input_boolean.ownerrez_lock_code_active
+        state: "on"
+      # Current time matches check-out time (within 1 minute window)
+      - condition: template
+        value_template: >
+          {% set checkout = state_attr('input_datetime.ownerrez_current_checkout', 'timestamp') %}
+          {% set now_time = now().timestamp() %}
+          {{ (now_time >= checkout) and (now_time < checkout + 60) }}
+    action:
+      - variables:
+          lock_entities: "{{ states('input_text.ownerrez_lock_entities').split(',') }}"
+          code_slots: "{{ states('input_text.ownerrez_lock_code_slots').split(',') }}"
+
+      # Clear code from all locks
+      - repeat:
+          count: "{{ lock_entities | length }}"
+          sequence:
+            - variables:
+                current_lock: "{{ lock_entities[repeat.index - 1] | trim }}"
+                current_slot: "{{ code_slots[repeat.index - 1] | trim | int }}"
+
+            # Clear lock code for current lock
+            - service: lock.clear_usercode
+              target:
+                entity_id: "{{ current_lock }}"
+              data:
+                code_slot: "{{ current_slot }}"
+
+            # Small delay between clearing locks
+            - delay:
+                seconds: 2
+
+      # Mark code as inactive
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ownerrez_lock_code_active
+
+      # Notify host about check-out
+      # CUSTOMIZE: Change notify service
+      - service: notify.mobile_app  # ← CHANGE THIS
+        data:
+          title: "✅ Guest Check-out Complete"
+          message: >
+            {{ states('input_text.ownerrez_current_guest_name') }}'s lock code has been disabled from {{ lock_entities | length }} lock(s).
+            Booking: {{ states('input_text.ownerrez_current_booking_id') }}
+          data:
+            tag: ownerrez_checkout
+            group: ownerrez
+
+      # Clear all guest data
+      - service: input_text.set_value
+        data:
+          value: ""
+        target:
+          entity_id:
+            - input_text.ownerrez_current_guest_name
+            - input_text.ownerrez_current_lock_code
+            - input_text.ownerrez_current_booking_id
+
+  ###############################################################################
+  # AUTOMATION 4: Guest Arrival Notification (ANY LOCK)
+  ###############################################################################
+  - id: ownerrez_guest_arrival_notification
+    alias: "OwnerRez: Guest Arrival Notification"
+    description: "Notify when guest unlocks any configured door"
+    mode: queued
+    max: 10
+    trigger:
+      # Dynamically trigger on any configured lock
+      - platform: template
+        value_template: >
+          {% set locks = states('input_text.ownerrez_lock_entities').split(',') %}
+          {% set slots = states('input_text.ownerrez_lock_code_slots').split(',') %}
+          {% for lock in locks %}
+            {% set lock_entity = lock | trim %}
+            {% set slot = slots[loop.index0] | trim | int %}
+            {% if is_state(lock_entity, 'unlocked') and 
+                  state_attr(lock_entity, 'code_slot') | int == slot %}
+              true
+            {% endif %}
+          {% endfor %}
+    condition:
+      # Lock code must be active
+      - condition: state
+        entity_id: input_boolean.ownerrez_lock_code_active
+        state: "on"
+    action:
+      - variables:
+          locks: "{{ states('input_text.ownerrez_lock_entities').split(',') }}"
+          slots: "{{ states('input_text.ownerrez_lock_code_slots').split(',') }}"
+          unlocked_lock: >
+            {% for lock in locks %}
+              {% set lock_entity = lock | trim %}
+              {% set slot = slots[loop.index0] | trim | int %}
+              {% if is_state(lock_entity, 'unlocked') and 
+                    state_attr(lock_entity, 'code_slot') | int == slot %}
+                {{ lock_entity }}
+              {% endif %}
+            {% endfor %}
+
+      # CUSTOMIZE: Change notify service
+      - service: notify.mobile_app  # ← CHANGE THIS
+        data:
+          title: "🚪 Guest Arrived"
+          message: >
+            {{ states('input_text.ownerrez_current_guest_name') }} just unlocked {{ unlocked_lock }}.
+          data:
+            tag: ownerrez_arrival
+            group: ownerrez
+            actions:
+              - action: "URI"
+                title: "View Camera"
+                uri: "/lovelace/cameras"
+
+  ###############################################################################
+  # AUTOMATION 5: 24-Hour Check-in Reminder
+  ###############################################################################
+  - id: ownerrez_checkin_reminder_24h
+    alias: "OwnerRez: Check-in Reminder (24 hours)"
+    description: "Remind host about upcoming check-in"
+    mode: single
+    trigger:
+      # Check daily at 9 AM
+      - platform: time
+        at: "09:00:00"
+    condition:
+      # Must have a guest scheduled
+      - condition: template
+        value_template: "{{ states('input_text.ownerrez_current_guest_name') != '' }}"
+      # Check-in is between 23-25 hours away
+      - condition: template
+        value_template: >
+          {% set checkin = state_attr('input_datetime.ownerrez_current_checkin', 'timestamp') %}
+          {% set now_time = now().timestamp() %}
+          {% set diff = checkin - now_time %}
+          {{ diff > 82800 and diff < 90000 }}
+    action:
+      # CUSTOMIZE: Change notify service
+      - service: notify.mobile_app  # ← CHANGE THIS
+        data:
+          title: "📅 Guest Checking In Tomorrow"
+          message: >
+            {{ states('input_text.ownerrez_current_guest_name') }} checks in tomorrow at 
+            {{ state_attr('input_datetime.ownerrez_current_checkin', 'timestamp') | timestamp_custom('%I:%M %p') }}.
+            
+            Lock code: {{ states('input_text.ownerrez_current_lock_code') }}
+            Will be programmed to {{ states('input_text.ownerrez_lock_entities').split(',') | length }} lock(s)
+          data:
+            tag: ownerrez_reminder
+            group: ownerrez
+
+  ###############################################################################
+  # AUTOMATION 6: Same-Day Check-out Reminder
+  ###############################################################################
+  - id: ownerrez_checkout_reminder_today
+    alias: "OwnerRez: Check-out Reminder (Same Day)"
+    description: "Morning reminder on check-out day"
+    mode: single
+    trigger:
+      # Check daily at 8 AM
+      - platform: time
+        at: "08:00:00"
+    condition:
+      # Lock code must be active
+      - condition: state
+        entity_id: input_boolean.ownerrez_lock_code_active
+        state: "on"
+      # Check-out is today
+      - condition: template
+        value_template: >
+          {{ now().date() | string == (state_attr('input_datetime.ownerrez_current_checkout', 'timestamp') | timestamp_custom('%Y-%m-%d')) }}
+    action:
+      # CUSTOMIZE: Change notify service
+      - service: notify.mobile_app  # ← CHANGE THIS
+        data:
+          title: "🏁 Guest Checks Out Today"
+          message: >
+            {{ states('input_text.ownerrez_current_guest_name') }} checks out at 
+            {{ state_attr('input_datetime.ownerrez_current_checkout', 'timestamp') | timestamp_custom('%I:%M %p') }}.
+            
+            Lock codes will be disabled automatically from all locks.
+          data:
+            tag: ownerrez_checkout_reminder
+            group: ownerrez

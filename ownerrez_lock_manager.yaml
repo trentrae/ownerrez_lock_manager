@@ -88,9 +88,9 @@ input_text:
     initial: "5,5,5"
     max: 100
 
-# RESTful API Integration
+# RESTful API Integration - Now includes door codes and guest names
 rest:
-  - resource: "https://api.ownerrez.com/v2/bookings?property_ids=445458&limit=20&from=2025-10-14&to=2026-04-14"
+  - resource: "https://api.ownerrez.com/v2/bookings?property_ids=445458&limit=20&from=2025-10-14&to=2026-04-14&include_door_codes=true&include_guest=true"
     scan_interval: 3600
     method: GET
     headers:
@@ -119,7 +119,7 @@ input_text:
     name: Current Lock Code
     mode: password
     icon: mdi:lock
-    max: 4
+    max: 6
 
   ownerrez_current_booking_id:
     name: Current Booking ID
@@ -142,6 +142,7 @@ input_boolean:
     name: Lock Code Active
     icon: mdi:lock-check
 
+# Template Sensors
 # Template Sensors
 template:
   - sensor:
@@ -210,143 +211,274 @@ template:
             {% endif %}
         icon: mdi:bug
 
+      - name: "OwnerRez Debug Simple"
+        unique_id: ownerrez_debug_simple
+        state: >
+          {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+          {{ 'Has data' if bookings != none else 'No data' }}
+        attributes:
+          bookings_exist: >
+            {{ state_attr('sensor.ownerrez_bookings_raw', 'items') != none }}
+          bookings_count: >
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {{ bookings | length if bookings != none else 0 }}
+          today_string: >
+            {{ now().strftime('%Y-%m-%d') }}
+          booking_1_check: >
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none and bookings | length > 0 %}
+              ID: {{ bookings[0].id }}
+              Type: {{ bookings[0].type }}
+              Status: {{ bookings[0].status }}
+              Departure: {{ bookings[0].departure }}
+              Is booking: {{ bookings[0].type == 'booking' }}
+              Is active: {{ bookings[0].status == 'active' }}
+              Depart >= today: {{ bookings[0].departure >= now().strftime('%Y-%m-%d') }}
+            {% else %}
+              No bookings
+            {% endif %}
+          booking_2_check: >
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none and bookings | length > 1 %}
+              ID: {{ bookings[1].id }}
+              Type: {{ bookings[1].type }}
+              Status: {{ bookings[1].status }}
+              Departure: {{ bookings[1].departure }}
+              Is booking: {{ bookings[1].type == 'booking' }}
+              Is active: {{ bookings[1].status == 'active' }}
+              Depart >= today: {{ bookings[1].departure >= now().strftime('%Y-%m-%d') }}
+            {% else %}
+              Less than 2 bookings
+            {% endif %}
+          filtered_count: >
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
+                {% endif %}
+              {% endfor %}
+              {{ valid.list | length }} bookings pass filter
+            {% else %}
+              No data
+            {% endif %}
+        icon: mdi:bug
+
       - name: "OwnerRez Next Booking"
         unique_id: ownerrez_next_booking
         state: >
-          {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
-          {% if bookings_attr is none %}
+          {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+          {% if bookings == none %}
             none
           {% else %}
-            {% set now_date = now().date() %}
-            {% set upcoming = [] %}
-            {% for booking in bookings_attr %}
-              {% if booking.arrival is defined and booking.status == 'active' %}
-                {% set arrival_date = (booking.arrival | as_datetime).date() %}
-                {% if arrival_date >= now_date %}
-                  {% set upcoming = upcoming + [booking] %}
-                {% endif %}
+            {% set today = now().strftime('%Y-%m-%d') %}
+            {% set valid = namespace(list=[]) %}
+            {% for b in bookings %}
+              {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set valid.list = valid.list + [b] %}
               {% endif %}
             {% endfor %}
-            {% if upcoming | length > 0 %}
-              {% set next_booking = upcoming | sort(attribute='arrival') | first %}
-              {{ next_booking.id }}
+            {% if valid.list | length > 0 %}
+              {{ (valid.list | sort(attribute='arrival'))[0].id }}
             {% else %}
               none
             {% endif %}
           {% endif %}
         attributes:
           guestName: >
-            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
-            {% if bookings_attr is not none %}
-              {% set now_date = now().date() %}
-              {% set upcoming = [] %}
-              {% for booking in bookings_attr %}
-                {% if booking.arrival is defined and booking.status == 'active' %}
-                  {% set arrival_date = (booking.arrival | as_datetime).date() %}
-                  {% if arrival_date >= now_date %}
-                    {% set upcoming = upcoming + [booking] %}
-                  {% endif %}
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
                 {% endif %}
               {% endfor %}
-              {% if upcoming | length > 0 %}
-                {% set next_booking = upcoming | sort(attribute='arrival') | first %}
-                {{ next_booking.title | default('Guest') }}
+              {% if valid.list | length > 0 %}
+                {% set next = (valid.list | sort(attribute='arrival'))[0] %}
+                {% if next.guest is defined and next.guest.first_name is defined %}
+                  {{ next.guest.first_name }} {{ next.guest.last_name | default('') }}
+                {% else %}
+                  Guest
+                {% endif %}
               {% endif %}
             {% endif %}
           arrival: >
-            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
-            {% if bookings_attr is not none %}
-              {% set now_date = now().date() %}
-              {% set upcoming = [] %}
-              {% for booking in bookings_attr %}
-                {% if booking.arrival is defined and booking.status == 'active' %}
-                  {% set arrival_date = (booking.arrival | as_datetime).date() %}
-                  {% if arrival_date >= now_date %}
-                    {% set upcoming = upcoming + [booking] %}
-                  {% endif %}
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
                 {% endif %}
               {% endfor %}
-              {% if upcoming | length > 0 %}
-                {% set next_booking = upcoming | sort(attribute='arrival') | first %}
-                {% set check_in_time = next_booking.check_in | default('16:00') %}
-                {{ next_booking.arrival }}T{{ check_in_time }}:00
+              {% if valid.list | length > 0 %}
+                {% set next = (valid.list | sort(attribute='arrival'))[0] %}
+                {{ next.arrival }}T{{ next.check_in | default('16:00') }}:00
               {% endif %}
             {% endif %}
           departure: >
-            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
-            {% if bookings_attr is not none %}
-              {% set now_date = now().date() %}
-              {% set upcoming = [] %}
-              {% for booking in bookings_attr %}
-                {% if booking.arrival is defined and booking.status == 'active' %}
-                  {% set arrival_date = (booking.arrival | as_datetime).date() %}
-                  {% if arrival_date >= now_date %}
-                    {% set upcoming = upcoming + [booking] %}
-                  {% endif %}
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
                 {% endif %}
               {% endfor %}
-              {% if upcoming | length > 0 %}
-                {% set next_booking = upcoming | sort(attribute='arrival') | first %}
-                {% set check_out_time = next_booking.check_out | default('10:00') %}
-                {{ next_booking.departure }}T{{ check_out_time }}:00
+              {% if valid.list | length > 0 %}
+                {% set next = (valid.list | sort(attribute='arrival'))[0] %}
+                {{ next.departure }}T{{ next.check_out | default('10:00') }}:00
               {% endif %}
             {% endif %}
           status: >
-            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
-            {% if bookings_attr is not none %}
-              {% set now_date = now().date() %}
-              {% set upcoming = [] %}
-              {% for booking in bookings_attr %}
-                {% if booking.arrival is defined and booking.status == 'active' %}
-                  {% set arrival_date = (booking.arrival | as_datetime).date() %}
-                  {% if arrival_date >= now_date %}
-                    {% set upcoming = upcoming + [booking] %}
-                  {% endif %}
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
                 {% endif %}
               {% endfor %}
-              {% if upcoming | length > 0 %}
-                {% set next_booking = upcoming | sort(attribute='arrival') | first %}
-                {{ next_booking.status }}
+              {% if valid.list | length > 0 %}
+                {{ (valid.list | sort(attribute='arrival'))[0].status }}
               {% endif %}
             {% endif %}
           propertyId: >
-            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
-            {% if bookings_attr is not none %}
-              {% set now_date = now().date() %}
-              {% set upcoming = [] %}
-              {% for booking in bookings_attr %}
-                {% if booking.arrival is defined and booking.status == 'active' %}
-                  {% set arrival_date = (booking.arrival | as_datetime).date() %}
-                  {% if arrival_date >= now_date %}
-                    {% set upcoming = upcoming + [booking] %}
-                  {% endif %}
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
                 {% endif %}
               {% endfor %}
-              {% if upcoming | length > 0 %}
-                {% set next_booking = upcoming | sort(attribute='arrival') | first %}
-                {{ next_booking.property_id }}
+              {% if valid.list | length > 0 %}
+                {{ (valid.list | sort(attribute='arrival'))[0].property_id }}
               {% endif %}
             {% endif %}
           confirmationCode: >
-            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
-            {% if bookings_attr is not none %}
-              {% set now_date = now().date() %}
-              {% set upcoming = [] %}
-              {% for booking in bookings_attr %}
-                {% if booking.arrival is defined and booking.status == 'active' %}
-                  {% set arrival_date = (booking.arrival | as_datetime).date() %}
-                  {% if arrival_date >= now_date %}
-                    {% set upcoming = upcoming + [booking] %}
-                  {% endif %}
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
                 {% endif %}
               {% endfor %}
-              {% if upcoming | length > 0 %}
-                {% set next_booking = upcoming | sort(attribute='arrival') | first %}
-                {{ next_booking.platform_reservation_number | default('N/A') }}
+              {% if valid.list | length > 0 %}
+                {% set next = (valid.list | sort(attribute='arrival'))[0] %}
+                {{ next.platform_reservation_number | default('N/A') }}
+              {% endif %}
+            {% endif %}
+          doorCode: >
+            {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings != none %}
+              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set valid = namespace(list=[]) %}
+              {% for b in bookings %}
+                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                  {% set valid.list = valid.list + [b] %}
+                {% endif %}
+              {% endfor %}
+              {% if valid.list | length > 0 %}
+                {% set next = (valid.list | sort(attribute='arrival'))[0] %}
+                {% if next.door_codes is defined and next.door_codes | length > 0 %}
+                  {{ next.door_codes[0].code }}
+                {% else %}
+                  {{ '%06d' | format(range(0, 999999) | random) }}
+                {% endif %}
               {% endif %}
             {% endif %}
         icon: mdi:calendar-clock
 
+      - name: "OwnerRez Booking Troubleshooter"
+        unique_id: ownerrez_booking_troubleshooter
+        state: >
+          {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+          {% if bookings_attr is none %}
+            No data from API
+          {% else %}
+            Checking {{ bookings_attr | length }} items
+          {% endif %}
+        attributes:
+          current_date: "{{ now().date() }}"
+          current_datetime: "{{ now() }}"
+          all_bookings: >
+            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings_attr is not none %}
+              {% set result = [] %}
+              {% for booking in bookings_attr %}
+                {% set result = result + [{
+                  'id': booking.id,
+                  'type': booking.type,
+                  'status': booking.status,
+                  'arrival': booking.arrival,
+                  'departure': booking.departure
+                }] %}
+              {% endfor %}
+              {{ result }}
+            {% else %}
+              []
+            {% endif %}
+          filtered_bookings: >
+            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings_attr is not none %}
+              {% set now_date = now().date() %}
+              {% set result = [] %}
+              {% for booking in bookings_attr %}
+                {% if booking.arrival is defined and booking.departure is defined %}
+                  {% set departure_date = (booking.departure | as_datetime).date() %}
+                  {% set passes_filter = {
+                    'id': booking.id,
+                    'type': booking.type,
+                    'status': booking.status,
+                    'departure': booking.departure,
+                    'departure_date': departure_date | string,
+                    'today': now_date | string,
+                    'is_booking_type': booking.type == 'booking',
+                    'is_active': booking.status == 'active',
+                    'departure_not_past': departure_date >= now_date,
+                    'passes_all': (booking.type == 'booking' and booking.status == 'active' and departure_date >= now_date)
+                  } %}
+                  {% set result = result + [passes_filter] %}
+                {% endif %}
+              {% endfor %}
+              {{ result }}
+            {% else %}
+              []
+            {% endif %}
+          should_show_booking: >
+            {% set bookings_attr = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
+            {% if bookings_attr is not none %}
+              {% set now_date = now().date() %}
+              {% set active = [] %}
+              {% for booking in bookings_attr %}
+                {% if booking.arrival is defined and booking.departure is defined and booking.status == 'active' and booking.type == 'booking' %}
+                  {% set departure_date = (booking.departure | as_datetime).date() %}
+                  {% if departure_date >= now_date %}
+                    {% set active = active + [booking] %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {% if active | length > 0 %}
+                {% set next_booking = active | sort(attribute='arrival') | first %}
+                YES - Booking ID {{ next_booking.id }} should be the next booking
+              {% else %}
+                NO - No bookings pass the filter
+              {% endif %}
+            {% else %}
+              ERROR - No data
+            {% endif %}
+        icon: mdi:magnify
 # Automations
 automation:
   - id: ownerrez_update_api_date_range
@@ -422,6 +554,7 @@ automation:
           guest_name: "{{ state_attr('sensor.ownerrez_next_booking', 'guestName') }}"
           arrival: "{{ state_attr('sensor.ownerrez_next_booking', 'arrival') }}"
           departure: "{{ state_attr('sensor.ownerrez_next_booking', 'departure') }}"
+          door_code: "{{ state_attr('sensor.ownerrez_next_booking', 'doorCode') }}"
       - service: input_text.set_value
         target:
           entity_id: input_text.ownerrez_current_guest_name
@@ -446,7 +579,7 @@ automation:
         target:
           entity_id: input_text.ownerrez_current_lock_code
         data:
-          value: "{{ range(1000, 9999) | random }}"
+          value: "{{ door_code if door_code else '%06d' | format(range(0, 999999) | random) }}"
       - service: notify.mobile_app
         data:
           title: "✅ OwnerRez Booking Synced"
@@ -454,6 +587,7 @@ automation:
             Guest: {{ guest_name }}
             Check-in: {{ arrival | as_timestamp | timestamp_custom('%b %d at %I:%M %p') }}
             Lock Code: {{ states('input_text.ownerrez_current_lock_code') }}
+            {% if door_code %}(from OwnerRez){% else %}(auto-generated){% endif %}
 
   - id: ownerrez_enable_lock_code_checkin
     alias: "OwnerRez: Enable Lock Code at Check-in"
@@ -471,7 +605,8 @@ automation:
         value_template: >
           {% set checkin = state_attr('input_datetime.ownerrez_current_checkin', 'timestamp') %}
           {% set now_time = now().timestamp() %}
-          {{ (now_time >= checkin) and (now_time < checkin + 60) }}
+          {% set five_min_before = checkin - 300 %}
+          {{ (now_time >= five_min_before) and (now_time < five_min_before + 60) }}
     action:
       - variables:
           lock_entities: "{{ states('input_text.ownerrez_lock_entities').split(',') }}"
@@ -496,7 +631,7 @@ automation:
           entity_id: input_boolean.ownerrez_lock_code_active
       - service: notify.mobile_app
         data:
-          title: "🔓 Guest Check-in Active"
+          title: "🔓 Guest Check-in Active (5 min early)"
           message: >
             {{ states('input_text.ownerrez_current_guest_name') }} can now check in.
             Code {{ states('input_text.ownerrez_current_lock_code') }} programmed to {{ lock_entities | length }} lock(s).

@@ -1,286 +1,571 @@
 # OwnerRez Lock Manager for Home Assistant
 
-Automatically sync your OwnerRez bookings with Home Assistant and manage smart lock codes for seamless guest check-ins and check-outs.
+**Version:** 1.2.0 (Optimized)
 
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5.svg)](https://www.home-assistant.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Automatically manage smart lock codes for your vacation rental property by syncing booking data from OwnerRez. Lock codes are programmed 5 minutes before guest check-in and automatically removed at checkout.
+
+---
 
 ## Features
 
-✨ **Automatic Booking Sync** - Pulls upcoming reservations from OwnerRez API every hour  
-🔐 **Smart Lock Integration** - Automatically generates and manages temporary lock codes  
-📅 **Scheduled Access** - Enables codes at check-in, disables at check-out  
-📱 **Rich Notifications** - Alerts for bookings, arrivals, and reminders  
-👤 **Guest Tracking** - Know exactly who's checking in and when  
-🔔 **Proactive Reminders** - 24-hour check-in and same-day check-out alerts  
+### 🔄 Automatic Synchronization
+- Fetches booking data from OwnerRez API every hour
+- Identifies the next upcoming booking automatically
+- Syncs guest information, arrival/departure times, and door codes
 
-## Prerequisites
+### 🔐 Smart Lock Management
+- Programs lock codes **5 minutes before check-in time**
+- Removes codes automatically at checkout time
+- Supports multiple locks (front door, back door, garage, etc.)
+- Uses door codes directly from OwnerRez (no code generation)
 
-- Home Assistant (2023.1 or newer recommended)
-- OwnerRez account with API access
-- Compatible smart lock (Z-Wave, Zigbee, or Wi-Fi)
-- Mobile app or notification service configured in Home Assistant
+### 📱 Notifications
+- Booking sync confirmations with guest details
+- Check-in activation alerts (5 min early)
+- Guest arrival detection when locks are used
+- 24-hour advance check-in reminders
+- Same-day checkout reminders
+- Checkout completion confirmations
 
-## Supported Lock Types
+### 📊 Monitoring
+- Real-time view of active booking information
+- Track which locks are currently programmed
+- View guest name, dates, confirmation codes, and door codes
+- Monitor booking status and property information
 
-This integration works with any lock that supports the Home Assistant `lock.set_usercode` service:
+---
 
-- **Z-Wave Locks**: Kwikset, Schlage, Yale (via Z-Wave JS)
-- **Zigbee Locks**: Yale, Schlage Encode (via ZHA or Zigbee2MQTT)
-- **Wi-Fi Locks**: August, Wyze Lock (via native integrations)
+## Requirements
+
+- **Home Assistant** 2023.1 or newer
+- **OwnerRez Account** with API access
+- **Smart Locks** compatible with Home Assistant that support the `lock.set_usercode` service (e.g., Z-Wave, Zigbee locks)
+- **OwnerRez API Credentials** (username and API token)
+
+---
 
 ## Installation
 
 ### Step 1: Get OwnerRez API Credentials
 
-1. Log into your [OwnerRez account](https://app.ownerrez.com)
-2. Navigate to **Settings** → **Security** → **Personal Access Tokens**
-3. Click **Create Personal Access Token**
-4. Give it a name (e.g., "Home Assistant") and click **Create**
-5. Copy your token (you won't be able to see it again!)
+1. Log into your OwnerRez account
+2. Navigate to **Settings → API**
+3. Generate a new API token (starts with `pt_`)
+4. Copy your email and token - you'll need these next
 
-### Step 2: Enable Packages in Home Assistant
+### Step 2: Add Credentials to Home Assistant
 
-Edit your `/config/configuration.yaml` and add:
-
-```yaml
-homeassistant:
-  packages: !include_dir_named packages
-```
-
-### Step 3: Add Credentials to Secrets
-
-Edit `/config/secrets.yaml` and add:
+1. Open your Home Assistant configuration directory
+2. Edit the `secrets.yaml` file
+3. Add the following lines:
 
 ```yaml
 ownerrez_username: "your-email@example.com"
 ownerrez_token: "pt_your_token_here"
 ```
 
-### Step 4: Install the Package
+4. Save the file
 
-1. Create a `packages` folder in your `/config/` directory if it doesn't exist
-2. Download `ownerrez_lock_manager.yaml` from this repository
-3. Place it in `/config/packages/ownerrez_lock_manager.yaml`
-4. Edit the file to customize your settings (see Configuration section)
+### Step 3: Enable Packages (if not already enabled)
 
-### Step 5: Restart Home Assistant
+1. Edit your `configuration.yaml` file
+2. Add or verify this section exists:
 
-1. Go to **Developer Tools** → **YAML** → **Check Configuration**
-2. If valid, go to **Settings** → **System** → **Restart**
-
-## Configuration
-
-### Required Changes
-
-Open `/config/packages/ownerrez_lock_manager.yaml` and update:
-
-**1. Lock Entity ID** (line ~115, 180, 228):
-```yaml
-entity_id: lock.front_door  # Change to YOUR lock entity
-```
-
-**2. Notification Service** (line ~127, 148, 193, 248, etc.):
-```yaml
-service: notify.mobile_app  # Change to YOUR notification service
-# Examples: notify.mobile_app_iphone, notify.alexa_media, notify.smtp
-```
-
-**3. Code Slot** (line ~117, 182):
-```yaml
-code_slot: 5  # Change if slot 5 is already in use
-```
-
-### Optional Customization
-
-**Change sync frequency** (default: every hour):
-```yaml
-scan_interval: 3600  # Seconds (3600 = 1 hour)
-```
-
-**Adjust booking look-ahead window** (default: 60 days):
-```yaml
-to: "{{ (now() + timedelta(days=60)).strftime('%Y-%m-%d') }}"
-```
-
-**Modify reminder times**:
-- Check-in reminder: Line ~272 (default: 9:00 AM)
-- Check-out reminder: Line ~295 (default: 8:00 AM)
-
-## Lock-Specific Configuration
-
-### Z-Wave Locks (Z-Wave JS)
-
-Use the default configuration:
-```yaml
-service: lock.set_usercode
-service: lock.clear_usercode
-```
-
-### Zigbee Locks (ZHA)
-
-Replace service calls with:
-```yaml
-service: zha.set_lock_user_code
-data:
-  code_slot: 5
-  user_code: "{{ states('input_text.current_lock_code') }}"
-```
-
-### Schlage Encode (Wi-Fi)
-
-Check if your integration supports `lock.set_usercode`. If not, you may need a custom integration or webhook.
-
-### August Locks
-
-August locks typically use the August integration's specific services. Consult the [August integration docs](https://www.home-assistant.io/integrations/august/).
-
-## Dashboard Card
-
-Add this to your Lovelace dashboard for easy monitoring:
-
-```yaml
-type: vertical-stack
-cards:
-  - type: markdown
-    content: |
-      ## 🏠 OwnerRez Guest Management
-      **Current Guest:** {{ states('input_text.current_guest_name') }}
-      **Lock Code Active:** {{ states('input_boolean.lock_code_active') }}
-  - type: entities
-    entities:
-      - entity: input_text.current_guest_name
-        name: Guest Name
-      - entity: input_text.current_lock_code
-        name: Lock Code
-      - entity: input_datetime.current_checkin
-        name: Check-in
-      - entity: input_datetime.current_checkout
-        name: Check-out
-      - entity: input_boolean.lock_code_active
-        name: Code Active
-      - type: divider
-      - entity: lock.front_door
-        name: Front Door Lock
-      - entity: sensor.ownerrez_next_booking
-        name: Next Booking ID
-```
-
-## Usage
-
-Once installed and configured, the system works automatically:
-
-1. **Hourly Sync**: Home Assistant checks OwnerRez for upcoming bookings
-2. **Pre-Check-in**: When a new booking is found, a random 4-digit code is generated
-3. **24-Hour Reminder**: You receive a notification the day before check-in
-4. **Check-in**: Lock code is automatically enabled at the scheduled time
-5. **Guest Arrival**: You're notified when the guest unlocks the door
-6. **Check-out Reminder**: Morning notification on check-out day
-7. **Check-out**: Lock code is automatically disabled and cleared
-
-## Troubleshooting
-
-### "Unable to connect to OwnerRez API"
-
-- Verify your credentials in `secrets.yaml`
-- Check that your Personal Access Token is still valid
-- Ensure your OwnerRez account has API access enabled
-
-### Lock code not setting
-
-- Verify your lock entity ID is correct
-- Check that the code slot number is available (not used by another code)
-- Review Home Assistant logs: **Settings** → **System** → **Logs**
-- Test manually: Developer Tools → Services → `lock.set_usercode`
-
-### Notifications not working
-
-- Verify your notification service is configured correctly
-- Test notifications: Developer Tools → Services → `notify.mobile_app`
-- Check notification service name matches your setup
-
-### Bookings not syncing
-
-- Check the REST sensor state: Developer Tools → States → `sensor.ownerrez_next_booking`
-- Verify the date range in the API call includes your booking
-- Check OwnerRez booking status is "confirmed"
-
-### Time zone issues
-
-Ensure Home Assistant's timezone matches your property's timezone:
 ```yaml
 homeassistant:
-  time_zone: "America/New_York"  # Change to your timezone
+  packages: !include_dir_named packages
 ```
 
-## Advanced Features
+3. Save the file
 
-### Multiple Properties
+### Step 4: Create Packages Directory
 
-To manage multiple properties, duplicate the configuration with different:
-- Sensor names (`sensor.ownerrez_property1_booking`)
-- Input helper names (`input_text.property1_guest_name`)
-- Lock entities (`lock.property1_front_door`)
-- Code slots (use different slots: 5, 6, 7, etc.)
+If it doesn't exist, create a `packages` folder in your config directory:
 
-### Email Codes to Guests
+```
+/config/
+  ├── configuration.yaml
+  ├── secrets.yaml
+  └── packages/
+      └── (this is where the lock manager file goes)
+```
 
-To automatically email lock codes to guests, add SMTP configuration and modify the check-in automation:
+### Step 5: Install Lock Manager File
 
+1. Download `ownerrez_lock_manager.yaml`
+2. Place it in `/config/packages/`
+3. The full path should be: `/config/packages/ownerrez_lock_manager.yaml`
+
+### Step 6: Customize Configuration
+
+Open `ownerrez_lock_manager.yaml` and customize these sections:
+
+#### A. Property ID (Line ~26)
 ```yaml
-# Add to configuration.yaml
-notify:
-  - name: email
-    platform: smtp
-    server: smtp.gmail.com
-    port: 587
-    sender: your-email@gmail.com
-    username: !secret smtp_username
-    password: !secret smtp_password
-    recipient: guest@example.com
-
-# Then use in automation:
-- service: notify.email
-  data:
-    title: "Your Check-in Information"
-    message: "Your door code is {{ states('input_text.current_lock_code') }}"
+input_text:
+  ownerrez_property_ids:
+    initial: "445458"  # ← Change to YOUR property ID
 ```
 
-### Access Logs
+Find your property ID in OwnerRez under Settings → Properties.
 
-Add a history card to track all lock events:
-
+#### B. Lock Entities (Line ~35)
 ```yaml
-type: history-graph
-entities:
-  - entity: lock.front_door
-  - entity: input_boolean.lock_code_active
-hours_to_show: 168
+  ownerrez_lock_entities:
+    initial: "lock.front_door,lock.back_door,lock.garage_door"  # ← Change to YOUR lock entity IDs
 ```
 
-## Contributing
+Use comma-separated entity IDs from your Home Assistant locks.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+#### C. Code Slots (Line ~39)
+```yaml
+  ownerrez_lock_code_slots:
+    initial: "5,5,5"  # ← Slot numbers for each lock (must match number of locks)
+```
 
-## Support
+Specify which user code slot to use on each lock. Example:
+- If you have 3 locks, use 3 numbers: `"5,5,5"`
+- If you have 2 locks, use 2 numbers: `"5,5"`
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/ownerrez-lock-manager/issues)
-- **Home Assistant Community**: [Community Forum Thread](https://community.home-assistant.io)
-- **OwnerRez API Docs**: [OwnerRez API Documentation](https://www.ownerrez.com/support/articles/api-overview)
+#### D. API Date Range (Line ~78)
+```yaml
+rest:
+  - resource: "https://api.ownerrez.com/v2/bookings?property_ids=445458&limit=20&from=2025-10-14&to=2026-04-14&include_door_codes=true&include_guest=true"
+```
 
-## License
+Change:
+- `property_ids=445458` to your property ID
+- `from=2025-10-14` to today's date minus a few days
+- `to=2026-04-14` to ~90-180 days in the future
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**Note:** The system will auto-update these dates, but you must manually update the REST resource URL and restart HA for changes to take effect.
 
-## Acknowledgments
+### Step 7: Restart Home Assistant
 
-- Thanks to the Home Assistant community for inspiration and support
-- Built for vacation rental hosts using OwnerRez property management
-
-## Disclaimer
-
-This is an unofficial integration and is not affiliated with or endorsed by OwnerRez. Use at your own risk. Always test thoroughly before relying on automated lock codes for guest access.
+1. Go to **Settings → System → Restart**
+2. Wait for Home Assistant to fully restart
+3. Check for any error messages in the logs
 
 ---
 
-⭐ If this project helps you, please consider giving it a star on GitHub!
+## Configuration
+
+### Date Range Management
+
+The system automatically tracks bookings within a configurable date range:
+
+- **Lookback Days** (default: 7) - How many days in the past to check
+- **Lookahead Days** (default: 90) - How many days in the future to check
+
+These settings update automatically at 1 AM on the first of each month, but **you must manually update the REST API URL** (line ~78) and restart Home Assistant for changes to take effect.
+
+### Lock Code Timing
+
+- **Enable:** 5 minutes before check-in time
+- **Disable:** At exact checkout time
+- **Check Frequency:** Every minute
+
+### Notification Settings
+
+By default, the system uses `persistent_notification` which creates notifications in the Home Assistant UI. To send to mobile devices:
+
+1. Replace `persistent_notification.create` with `notify.mobile_app_YOUR_DEVICE`
+2. Or use notification groups for multiple devices
+
+---
+
+## Usage
+
+### Dashboard Cards
+
+Add these to your dashboard to monitor the system:
+
+#### Guest Information Card
+```yaml
+type: entities
+title: Current Booking
+entities:
+  - entity: input_text.ownerrez_current_guest_name
+    name: Guest Name
+  - entity: input_datetime.ownerrez_current_checkin
+    name: Check-in
+  - entity: input_datetime.ownerrez_current_checkout
+    name: Check-out
+  - entity: input_text.ownerrez_current_lock_code
+    name: Lock Code
+  - entity: input_boolean.ownerrez_lock_code_active
+    name: Code Active
+```
+
+#### Lock Status Card
+```yaml
+type: entities
+title: Lock Status
+entities:
+  - entity: sensor.ownerrez_locks_programmed
+    name: Locks Programmed
+  - entity: lock.front_door
+  - entity: lock.back_door
+  - entity: lock.garage_door
+```
+
+#### Next Booking Card
+```yaml
+type: entities
+title: Next Booking
+entities:
+  - entity: sensor.ownerrez_next_booking
+    name: Booking ID
+  - type: attribute
+    entity: sensor.ownerrez_next_booking
+    attribute: guest_name
+    name: Guest
+  - type: attribute
+    entity: sensor.ownerrez_next_booking
+    attribute: arrival
+    name: Arrival
+  - type: attribute
+    entity: sensor.ownerrez_next_booking
+    attribute: departure
+    name: Departure
+  - type: attribute
+    entity: sensor.ownerrez_next_booking
+    attribute: door_code
+    name: Door Code
+```
+
+---
+
+## How It Works
+
+### 1. Data Retrieval
+Every hour, Home Assistant queries the OwnerRez API to fetch:
+- Active bookings
+- Guest information (first name, last name)
+- Arrival and departure dates/times
+- Door codes assigned in OwnerRez
+- Confirmation numbers
+
+### 2. Booking Selection
+The system identifies the "next booking" by:
+- Filtering for `type: booking` and `status: active`
+- Excluding bookings with past departure dates
+- Sorting by arrival date and selecting the earliest
+
+### 3. Data Sync
+When a new booking is detected or at 6 AM daily:
+- Guest information is stored in input helpers
+- Check-in/checkout times are set
+- Door code from OwnerRez is saved
+- A notification confirms the sync
+
+### 4. Lock Programming
+**5 minutes before check-in time:**
+- All configured locks are programmed with the guest's door code
+- Each lock receives the code in its assigned slot
+- The `ownerrez_lock_code_active` boolean turns ON
+- A notification confirms activation
+
+### 5. Checkout
+**At checkout time:**
+- All configured locks have the guest code removed
+- The `ownerrez_lock_code_active` boolean turns OFF
+- Guest information is cleared
+- A notification confirms removal
+
+### 6. Guest Detection
+When any configured lock is unlocked:
+- If a code is currently active
+- A notification is sent showing which guest unlocked which door
+
+---
+
+## Troubleshooting
+
+### No Booking Data Showing
+
+**Check the API Connection:**
+1. Go to **Developer Tools → States**
+2. Find `sensor.ownerrez_bookings_raw`
+3. Check if it has `items` in attributes
+
+**If no items:**
+- Verify credentials in `secrets.yaml`
+- Check the REST resource URL has correct property ID
+- Verify date range includes upcoming bookings
+- Check OwnerRez API token is valid
+
+**Test API manually:**
+```bash
+curl -u "your-email@example.com:pt_your_token" \
+  "https://api.ownerrez.com/v2/bookings?property_ids=YOUR_ID&limit=5&include_door_codes=true&include_guest=true"
+```
+
+### Next Booking Shows "none"
+
+**Verify booking filters:**
+1. Check `sensor.ownerrez_next_booking` state
+2. Ensure bookings are:
+   - Type: `booking` (not `quote` or `inquiry`)
+   - Status: `active` (not `cancelled` or `tentative`)
+   - Departure date: Today or future
+
+**Check OwnerRez booking status:**
+- Log into OwnerRez
+- Verify the booking is confirmed and active
+- Check that it's assigned to the correct property
+
+### Lock Codes Not Programming
+
+**Check timing:**
+- Codes only program 5 minutes before check-in
+- Monitor automation traces in **Settings → Automations & Scenes → OwnerRez: Enable Lock Code at Check-in**
+
+**Verify lock compatibility:**
+- Test manually: `Developer Tools → Services`
+- Service: `lock.set_usercode`
+- Entity: Your lock
+- Data: `{ "code_slot": 5, "usercode": "123456" }`
+
+**Check code slots:**
+- Ensure slots match your lock's available user code slots
+- Some locks reserve slots 1-3 for master codes
+- Try slots 4-10 for guest codes
+
+**View automation logs:**
+```
+Settings → System → Logs
+Filter for: ownerrez
+```
+
+### Codes Not Clearing at Checkout
+
+**Check automation:**
+1. **Settings → Automations & Scenes**
+2. Find **OwnerRez: Disable Lock Code at Check-out**
+3. Click the automation → **⋮ Menu → Traces**
+4. See if it's running at checkout time
+
+**Common issues:**
+- Checkout time hasn't passed yet
+- `input_boolean.ownerrez_lock_code_active` is already OFF
+- Lock service not responding
+
+### No Notifications Received
+
+**Persistent Notifications:**
+- Check the notification bell icon in Home Assistant UI
+- Persistent notifications appear there, not on mobile
+
+**For mobile notifications:**
+1. Replace `persistent_notification.create` with `notify.mobile_app_YOUR_DEVICE`
+2. Find your device name: **Settings → Devices & Services → Mobile App**
+3. Update all automations that send notifications
+
+### API Errors in Logs
+
+**"401 Unauthorized":**
+- Check credentials in `secrets.yaml`
+- Verify API token starts with `pt_`
+- Regenerate token in OwnerRez if needed
+
+**"Range too big" Error:**
+- Fixed in v1.2.0
+- Update to latest version
+
+**"Template Error":**
+- Check that all entity IDs in lock_entities exist
+- Verify input helpers are created
+- Restart Home Assistant after making changes
+
+### Duplicate Key Errors
+
+**"YAML contains duplicate key":**
+- Fixed in v1.2.0
+- All `input_text` entries are now consolidated
+- Delete old file and use updated version
+
+### Door Code Missing from OwnerRez
+
+The system **requires** door codes to be assigned in OwnerRez. If a booking doesn't have a code:
+
+1. Log into OwnerRez
+2. Open the booking
+3. Go to the **Arrival** tab
+4. Add a door code
+5. Wait for next sync (or restart HA)
+
+**To auto-generate codes in OwnerRez:**
+- OwnerRez can auto-generate codes for you
+- Configure in **Settings → Properties → [Your Property] → Door Locks**
+
+---
+
+## Entities Created
+
+### Sensors
+- `sensor.ownerrez_bookings_raw` - Raw API data
+- `sensor.ownerrez_next_booking` - Next booking details
+- `sensor.ownerrez_locks_programmed` - Count of programmed locks
+
+### Input Helpers
+- `input_text.ownerrez_property_ids` - Property ID(s)
+- `input_text.ownerrez_lock_entities` - Lock entity IDs
+- `input_text.ownerrez_lock_code_slots` - Code slot numbers
+- `input_text.ownerrez_current_guest_name` - Active guest name
+- `input_text.ownerrez_current_lock_code` - Active door code
+- `input_text.ownerrez_current_booking_id` - Active booking ID
+- `input_datetime.ownerrez_current_checkin` - Check-in time
+- `input_datetime.ownerrez_current_checkout` - Checkout time
+- `input_boolean.ownerrez_lock_code_active` - Code status
+- `input_number.ownerrez_lookback_days` - Past days to check
+- `input_number.ownerrez_lookahead_days` - Future days to check
+
+### Buttons
+- `input_button.ownerrez_update_date_range` - Manually update date range
+
+### Automations
+- `ownerrez_update_api_date_range` - Auto-update tracking dates
+- `ownerrez_sync_booking_data` - Sync booking information
+- `ownerrez_enable_lock_code_checkin` - Program codes at check-in
+- `ownerrez_disable_lock_code_checkout` - Remove codes at checkout
+- `ownerrez_guest_arrival_notification` - Alert on door unlock
+- `ownerrez_checkin_reminder_24h` - 24-hour advance reminder
+- `ownerrez_checkout_reminder_today` - Same-day checkout reminder
+
+---
+
+## Advanced Configuration
+
+### Multiple Properties
+
+To manage multiple properties, duplicate the package file and customize each:
+
+1. Copy `ownerrez_lock_manager.yaml` to `ownerrez_lock_manager_property2.yaml`
+2. Change all entity `unique_id` values to avoid conflicts
+3. Update property ID and lock entities
+4. Restart Home Assistant
+
+### Custom Check-in Buffer
+
+To change when codes are programmed (default: 5 minutes early):
+
+Find line ~325:
+```yaml
+{{ checkin is not none and now_time >= (checkin - 300) and now_time < (checkin - 240) }}
+```
+
+Change `300` (seconds) to your desired buffer:
+- 10 minutes early: `600`
+- 15 minutes early: `900`
+- 30 minutes early: `1800`
+- 1 hour early: `3600`
+
+### Extended Checkout Grace Period
+
+To give guests extra time after checkout (e.g., 1 hour grace period):
+
+Find line ~365:
+```yaml
+{{ checkout is not none and now_time >= checkout and now_time < (checkout + 60) }}
+```
+
+Change `checkout` to `(checkout + 3600)` for 1 hour grace period.
+
+---
+
+## Security Considerations
+
+### Best Practices
+
+1. **Use dedicated code slots** - Don't use slots 1-3 (often reserved for master codes)
+2. **Unique codes per booking** - OwnerRez can auto-generate unique codes
+3. **Regular audits** - Periodically check that codes are being cleared
+4. **Backup access** - Always maintain a separate master code
+5. **Monitor logs** - Watch for failed programming attempts
+
+### API Security
+
+- Store credentials only in `secrets.yaml`
+- Never commit `secrets.yaml` to version control
+- Regenerate API tokens periodically
+- Use read-only API tokens if possible (OwnerRez may support this)
+
+### Privacy
+
+The system stores:
+- Guest first and last names (in input helpers)
+- Door codes (password-protected input helper)
+- Booking IDs and dates
+
+This data is:
+- Stored locally in Home Assistant
+- Cleared after checkout
+- Not transmitted outside your network (except to OwnerRez API)
+
+---
+
+## Support & Contributing
+
+### Getting Help
+
+1. Check this README thoroughly
+2. Review Home Assistant logs for errors
+3. Test API connection manually
+4. Check OwnerRez booking status and codes
+
+### Reporting Issues
+
+When reporting issues, include:
+- Home Assistant version
+- Lock brand/model
+- Relevant log entries
+- Configuration (remove sensitive data)
+
+### Future Enhancements
+
+Potential features for future versions:
+- Multiple property support in single package
+- Slack/Discord notification integration
+- Cleaning schedule integration
+- Guest messaging automation
+- Booking statistics and reporting
+
+---
+
+## Changelog
+
+### v1.2.0 (Current - Optimized)
+- Fixed duplicate YAML key errors
+- Removed code generation (uses OwnerRez codes only)
+- Consolidated all input_text entries
+- Optimized template sensors for better performance
+- Improved error handling and logging
+- Standardized attribute naming conventions
+- Enhanced documentation
+
+### v1.1.0
+- Added guest name extraction from API
+- Included door code support
+- Added debug sensors for troubleshooting
+
+### v1.0.0
+- Initial release
+- Basic booking sync
+- Lock code automation
+- Notification system
+
+---
+
+## License
+
+This integration is provided as-is for personal use. Modify and adapt as needed for your specific setup.
+
+---
+
+## Credits
+
+Created for vacation rental property managers using OwnerRez and Home Assistant.
+
+**OwnerRez:** https://www.ownerrez.com  
+**Home Assistant:** https://www.home-assistant.io

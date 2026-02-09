@@ -1,6 +1,6 @@
 ###############################################################################
 # OwnerRez Lock Manager for Home Assistant
-# Version: 1.2.0 (Optimized)
+# Version: 1.3.0 (Two-Step Lock Programming) - Updated for Z-Wave JS
 # https://github.com/yourusername/ownerrez-lock-manager
 #
 # INSTALLATION:
@@ -26,7 +26,7 @@
 input_text:
   ownerrez_property_ids:
     name: OwnerRez Property IDs
-    initial: "445458"
+    initial: "386633" #<-- CUSTOMIZE: Update with your property ID
     max: 100
 
   ownerrez_api_from_date:
@@ -41,12 +41,12 @@ input_text:
 
   ownerrez_lock_entities:
     name: Lock Entities
-    initial: "lock.front_door,lock.back_door,lock.garage_door"
+    initial: "lock.entry_door" # <-- CUSTOMIZE: Update with your lock entity IDs(multiple separated by commas)
     max: 255
 
   ownerrez_lock_code_slots:
     name: Lock Code Slots
-    initial: "5,5,5"
+    initial: "15" #<!--- CUSTOMIZE: Update with the code slots you want to use for each lock(multiple separated by commas, must match lock entities count) 
     max: 100
 
   ownerrez_current_guest_name:
@@ -89,17 +89,26 @@ input_button:
     name: Update API Date Range
     icon: mdi:calendar-refresh
 
+input_boolean:
+  ownerrez_lock_code_active:
+    name: Lock Code Active
+    icon: mdi:lock-check
+  
+  ownerrez_guest_arrived:
+    name: Guest Has Arrived
+    icon: mdi:account-check
+
 ###############################################################################
 # RESTful API Integration
 ###############################################################################
 rest:
-  - resource: "https://api.ownerrez.com/v2/bookings?property_ids=445458&limit=20&from=2025-10-14&to=2026-04-14&include_door_codes=true&include_guest=true"
+  - resource: "https://api.ownerrez.com/v2/bookings?property_ids=386633&limit=20&from=2025-10-14&to=2026-04-14&include_door_codes=true&include_guest=true"
     scan_interval: 3600
     method: GET
     headers:
       Content-Type: application/json
       Accept: application/json
-      User-Agent: Home Assistant OwnerRez Lock Manager v1.2
+      User-Agent: Home Assistant OwnerRez Lock Manager v1.3
     authentication: basic
     username: !secret ownerrez_username
     password: !secret ownerrez_token
@@ -124,11 +133,6 @@ input_datetime:
     name: Current Check-out Time
     has_date: true
     has_time: true
-
-input_boolean:
-  ownerrez_lock_code_active:
-    name: Lock Code Active
-    icon: mdi:lock-check
 
 ###############################################################################
 # Template Sensors (Optimized)
@@ -294,13 +298,13 @@ automation:
     alias: "OwnerRez: Update API Date Range"
     mode: single
     trigger:
-      - platform: homeassistant
+      - trigger: homeassistant
         event: start
         id: startup
-      - platform: time
+      - trigger: time
         at: "01:00:00"
         id: scheduled
-      - platform: state
+      - trigger: state
         entity_id: input_button.ownerrez_update_date_range
         id: manual
     condition:
@@ -313,19 +317,19 @@ automation:
           lookahead: "{{ states('input_number.ownerrez_lookahead_days') | int(90) }}"
           from_date: "{{ (now() - timedelta(days=lookback)).strftime('%Y-%m-%d') }}"
           to_date: "{{ (now() + timedelta(days=lookahead)).strftime('%Y-%m-%d') }}"
-      - service: input_text.set_value
+      - action: input_text.set_value
         target:
           entity_id: input_text.ownerrez_api_from_date
         data:
           value: "{{ from_date }}"
-      - service: input_text.set_value
+      - action: input_text.set_value
         target:
           entity_id: input_text.ownerrez_api_to_date
         data:
           value: "{{ to_date }}"
       - condition: template
         value_template: "{{ trigger.id == 'manual' }}"
-      - service: persistent_notification.create
+      - action: persistent_notification.create
         data:
           title: "OwnerRez Date Range Updated"
           message: >
@@ -337,11 +341,11 @@ automation:
     alias: "OwnerRez: Sync Booking Data"
     mode: restart
     trigger:
-      - platform: state
+      - trigger: state
         entity_id: sensor.ownerrez_next_booking
-      - platform: homeassistant
+      - trigger: homeassistant
         event: start
-      - platform: time
+      - trigger: time
         at: "06:00:00"
     condition:
       - condition: template
@@ -359,47 +363,48 @@ automation:
           door_code: "{{ state_attr('sensor.ownerrez_next_booking', 'door_code') }}"
       - condition: template
         value_template: "{{ door_code != '' and door_code is not none }}"
-      - service: input_text.set_value
+      - action: input_text.set_value
         target:
           entity_id: input_text.ownerrez_current_guest_name
         data:
           value: "{{ guest_name }}"
-      - service: input_text.set_value
+      - action: input_text.set_value
         target:
           entity_id: input_text.ownerrez_current_booking_id
         data:
           value: "{{ booking_id }}"
-      - service: input_datetime.set_datetime
+      - action: input_datetime.set_datetime
         target:
           entity_id: input_datetime.ownerrez_current_checkin
         data:
           datetime: "{{ arrival }}"
-      - service: input_datetime.set_datetime
+      - action: input_datetime.set_datetime
         target:
           entity_id: input_datetime.ownerrez_current_checkout
         data:
           datetime: "{{ departure }}"
-      - service: input_text.set_value
+      - action: input_text.set_value
         target:
           entity_id: input_text.ownerrez_current_lock_code
         data:
           value: "{{ door_code }}"
       - condition: template
         value_template: "{{ states('input_text.ownerrez_current_booking_id') != booking_id }}"
-      - service: persistent_notification.create
+      - action: persistent_notification.create
         data:
           title: "OwnerRez Booking Synced"
           message: >
             **Guest:** {{ guest_name }}
             **Check-in:** {{ arrival | as_timestamp | timestamp_custom('%b %d at %I:%M %p') }}
             **Lock Code:** {{ door_code }}
+            Code will be programmed 5 minutes before check-in.
           notification_id: ownerrez_booking_sync
 
   - id: ownerrez_enable_lock_code_checkin
     alias: "OwnerRez: Enable Lock Code at Check-in"
     mode: single
     trigger:
-      - platform: time_pattern
+      - trigger: time_pattern
         minutes: "/1"
     condition:
       - condition: template
@@ -420,7 +425,7 @@ automation:
       - repeat:
           count: "{{ [lock_entities | length, code_slots | length] | min }}"
           sequence:
-            - service: lock.set_usercode
+            - action: zwave_js.set_lock_usercode
               target:
                 entity_id: "{{ lock_entities[repeat.index - 1] }}"
               data:
@@ -428,10 +433,17 @@ automation:
                 usercode: "{{ lock_code }}"
             - delay:
                 seconds: 2
-      - service: input_boolean.turn_on
+      - action: input_boolean.turn_on
         target:
           entity_id: input_boolean.ownerrez_lock_code_active
-      - service: persistent_notification.create
+      
+      # Reset the arrival flag for new booking
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ownerrez_guest_arrived
+      
+      # Persistent notification in Home Assistant UI
+      - action: persistent_notification.create
         data:
           title: "Guest Check-in Active"
           message: >
@@ -439,11 +451,19 @@ automation:
             Code **{{ lock_code }}** programmed to {{ lock_entities | length }} lock(s).
           notification_id: ownerrez_checkin
 
+      # Mobile push notification
+      - action: notify.mobile_app_iphone_17
+        data:
+          title: "🔓 Guest Check-in Active"
+          message: >
+            {{ states('input_text.ownerrez_current_guest_name') }} can now check in.
+            Code {{ lock_code }} programmed to {{ lock_entities | length }} lock(s).
+
   - id: ownerrez_disable_lock_code_checkout
     alias: "OwnerRez: Disable Lock Code at Check-out"
     mode: single
     trigger:
-      - platform: time_pattern
+      - trigger: time_pattern
         minutes: "/1"
     condition:
       - condition: state
@@ -462,23 +482,29 @@ automation:
       - repeat:
           count: "{{ [lock_entities | length, code_slots | length] | min }}"
           sequence:
-            - service: lock.clear_usercode
+            - action: zwave_js.clear_lock_usercode
               target:
                 entity_id: "{{ lock_entities[repeat.index - 1] }}"
               data:
                 code_slot: "{{ code_slots[repeat.index - 1] }}"
             - delay:
                 seconds: 2
-      - service: input_boolean.turn_off
+      - action: input_boolean.turn_off
         target:
           entity_id: input_boolean.ownerrez_lock_code_active
-      - service: persistent_notification.create
+      
+      # Reset arrival flag
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ownerrez_guest_arrived
+      
+      - action: persistent_notification.create
         data:
           title: "Guest Check-out Complete"
           message: >
-            **{{ guest_name }}**'s code disabled from {{ lock_entities | length }} lock(s).
+            **{{ guest_name }}**'s code cleared from {{ lock_entities | length }} lock(s).
           notification_id: ownerrez_checkout
-      - service: input_text.set_value
+      - action: input_text.set_value
         data:
           value: ""
         target:
@@ -492,33 +518,51 @@ automation:
     mode: queued
     max: 10
     trigger:
-      - platform: state
+      - trigger: state
         entity_id:
-          - lock.front_door
-          - lock.back_door
-          - lock.garage_door
+          - lock.entry_door
         to: "unlocked"
     condition:
       - condition: state
         entity_id: input_boolean.ownerrez_lock_code_active
         state: "on"
+      # Only notify if guest hasn't arrived yet
+      - condition: state
+        entity_id: input_boolean.ownerrez_guest_arrived
+        state: "off"
       - condition: template
         value_template: >
           {% set locks = states('input_text.ownerrez_lock_entities').split(',') | map('trim') | list %}
           {{ trigger.entity_id in locks }}
     action:
-      - service: persistent_notification.create
+      # Mark guest as arrived
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.ownerrez_guest_arrived
+      
+      # Persistent notification in Home Assistant UI
+      - action: persistent_notification.create
         data:
-          title: "Guest Arrived"
+          title: "🚪 Guest Arrived"
           message: >
             **{{ states('input_text.ownerrez_current_guest_name') }}** unlocked {{ state_attr(trigger.entity_id, 'friendly_name') | default(trigger.entity_id) }}.
-          notification_id: "ownerrez_arrival_{{ now().timestamp() | int }}"
+      
+            **Time:** {{ now().strftime('%I:%M %p') }}
+            **Date:** {{ now().strftime('%A, %B %d, %Y') }}
+          notification_id: "ownerrez_first_arrival"
+
+      # Mobile push notification
+      - action: notify.mobile_app_YOUR_DEVICE_NAME
+        data:
+          title: "🚪 Guest Arrived"
+          message: >
+            {{ states('input_text.ownerrez_current_guest_name') }} unlocked {{ state_attr(trigger.entity_id, 'friendly_name') | default(trigger.entity_id) }} at {{ now().strftime('%I:%M %p') }} on {{ now().strftime('%A, %B %d, %Y') }}.
 
   - id: ownerrez_checkin_reminder_24h
     alias: "OwnerRez: Check-in Reminder (24 hours)"
     mode: single
     trigger:
-      - platform: time
+      - trigger: time
         at: "09:00:00"
     condition:
       - condition: template
@@ -530,7 +574,7 @@ automation:
           {% set diff = checkin - now_time %}
           {{ checkin is not none and diff > 82800 and diff < 90000 }}
     action:
-      - service: persistent_notification.create
+      - action: persistent_notification.create
         data:
           title: "Guest Checking In Tomorrow"
           message: >
@@ -542,7 +586,7 @@ automation:
     alias: "OwnerRez: Check-out Reminder (Same Day)"
     mode: single
     trigger:
-      - platform: time
+      - trigger: time
         at: "08:00:00"
     condition:
       - condition: state
@@ -553,7 +597,7 @@ automation:
           {% set checkout = state_attr('input_datetime.ownerrez_current_checkout', 'timestamp') %}
           {{ checkout is not none and now().date() | string == (checkout | timestamp_custom('%Y-%m-%d')) }}
     action:
-      - service: persistent_notification.create
+      - action: persistent_notification.create
         data:
           title: "Guest Checks Out Today"
           message: >

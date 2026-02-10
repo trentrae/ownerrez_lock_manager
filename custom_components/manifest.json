@@ -1,1 +1,13 @@
-
+{
+  "domain": "ownerrez_lock_manager",
+  "name": "OwnerRez Lock Manager",
+  "documentation": "https://github.com/trentrae/Ownerrez_Lock_Manager",
+  "issue_tracker": "https://github.com/trentrae/Ownerrez_Lock_Manager/issues",
+  "version": "1.2.1",
+  "codeowners": ["@trentrae"],
+  "requirements": [],
+  "dependencies": [],
+  "config_flow": true,
+  "iot_class": "cloud_polling",
+  "integration_type": "service"
+}

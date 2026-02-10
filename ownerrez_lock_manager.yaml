@@ -98,6 +98,15 @@ input_boolean:
     name: Guest Has Arrived
     icon: mdi:account-check
 
+input_button:
+  ownerrez_update_date_range:
+    name: Update API Date Range
+    icon: mdi:calendar-refresh
+  
+  ownerrez_activate_code_early:
+    name: Activate Guest Code Early
+    icon: mdi:lock-clock-plus
+
 ###############################################################################
 # RESTful API Integration
 ###############################################################################
@@ -604,3 +613,55 @@ automation:
             **{{ states('input_text.ownerrez_current_guest_name') }}** checks out at 
             {{ state_attr('input_datetime.ownerrez_current_checkout', 'timestamp') | timestamp_custom('%I:%M %p') }}.
           notification_id: ownerrez_reminder_checkout
+  
+  - id: ownerrez_activate_code_early
+    alias: "OwnerRez: Activate Code Early"
+    trigger:
+      - platform: state
+        entity_id: input_button.ownerrez_activate_code_early
+    condition:
+      - condition: state
+        entity_id: input_boolean.ownerrez_lock_code_active
+        state: "off"
+      - condition: template
+        value_template: "{{ states('input_text.ownerrez_current_guest_name') != '' }}"
+      - condition: template
+        value_template: "{{ states('input_text.ownerrez_current_lock_code') != '' }}"
+    action:
+      - variables:
+          lock_entities: "{{ states('input_text.ownerrez_lock_entities').split(',') | map('trim') | select | list }}"
+          code_slots: "{{ states('input_text.ownerrez_lock_code_slots').split(',') | map('trim') | map('int') | list }}"
+          lock_code: "{{ states('input_text.ownerrez_current_lock_code') }}"
+          guest_name: "{{ states('input_text.ownerrez_current_guest_name') }}"
+      
+      - repeat:
+          count: "{{ [lock_entities | length, code_slots | length] | min }}"
+          sequence:
+            - action: zwave_js.set_lock_usercode
+              target:
+                entity_id: "{{ lock_entities[repeat.index - 1] }}"
+              data:
+                code_slot: "{{ code_slots[repeat.index - 1] }}"
+                usercode: "{{ lock_code }}"
+            - delay:
+                seconds: 2
+      
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.ownerrez_lock_code_active
+      
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ownerrez_guest_arrived
+      
+      - action: persistent_notification.create
+        data:
+          title: "🔓 Code Activated Early"
+          message: >
+            **{{ guest_name }}**'s code **{{ lock_code }}** manually activated and programmed to {{ lock_entities | length }} lock(s).
+      
+      - action: notify.mobile_app_iphone_17
+        data:
+          title: "🔓 Code Activated Early"
+          message: >
+            {{ guest_name }}'s code {{ lock_code }} manually activated and programmed to {{ lock_entities | length }} lock(s).

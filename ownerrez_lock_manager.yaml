@@ -446,6 +446,13 @@ automation:
       - repeat:
           count: "{{ [lock_entities | length, code_slots | length] | min }}"
           sequence:
+            - action: zwave_js.clear_lock_usercode
+              target:
+                entity_id: "{{ lock_entities[repeat.index - 1] }}"
+              data:
+                code_slot: "{{ code_slots[repeat.index - 1] }}"
+            - delay:
+                seconds: 3
             - action: zwave_js.set_lock_usercode
               target:
                 entity_id: "{{ lock_entities[repeat.index - 1] }}"
@@ -696,6 +703,13 @@ automation:
       - repeat:
           count: "{{ [lock_entities | length, code_slots | length] | min }}"
           sequence:
+            - action: zwave_js.clear_lock_usercode
+              target:
+                entity_id: "{{ lock_entities[repeat.index - 1] }}"
+              data:
+                code_slot: "{{ code_slots[repeat.index - 1] }}"
+            - delay:
+                seconds: 3
             - action: zwave_js.set_lock_usercode
               target:
                 entity_id: "{{ lock_entities[repeat.index - 1] }}"

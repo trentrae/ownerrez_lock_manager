@@ -477,6 +477,8 @@ automation:
     trigger:
       - trigger: time_pattern
         minutes: "/1"
+      - trigger: homeassistant
+        event: start
     condition:
       - condition: state
         entity_id: input_boolean.ownerrez_lock_code_active
@@ -485,7 +487,7 @@ automation:
         value_template: >
           {% set checkout = state_attr('input_datetime.ownerrez_current_checkout', 'timestamp') %}
           {% set now_time = now().timestamp() %}
-          {{ checkout is not none and now_time >= checkout and now_time < (checkout + 60) }}
+          {{ checkout is not none and now_time >= checkout }}
     action:
       - variables:
           lock_entities: "{{ states('input_text.ownerrez_lock_entities').split(',') | map('trim') | select | list }}"

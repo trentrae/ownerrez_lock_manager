@@ -66,7 +66,7 @@ def _locks_schema(defaults: dict) -> vol.Schema:
             vol.Optional(
                 CONF_CHECKIN_BUFFER_MINUTES,
                 default=defaults.get(CONF_CHECKIN_BUFFER_MINUTES, DEFAULT_CHECKIN_BUFFER_MINUTES),
-            ): vol.All(int, vol.Range(min=0, max=60)),
+            ): vol.All(int, vol.Range(min=0, max=240)),
             vol.Optional(
                 CONF_LOOKAHEAD_DAYS,
                 default=defaults.get(CONF_LOOKAHEAD_DAYS, DEFAULT_LOOKAHEAD),

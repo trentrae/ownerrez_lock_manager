@@ -22,8 +22,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register domain services (safe to re-register on multiple entries; last
-    # registered wins, which is acceptable for single-property deployments)
+    # Register domain services.
+    # Note: services are registered once per domain. For users with multiple
+    # config entries (multiple properties), the last loaded entry's coordinator
+    # handles these services. Per-entry service support can be added in a future
+    # version if multi-property use cases require it.
     async def _activate_early(_call: ServiceCall) -> None:
         await coordinator.activate_code_early()
 

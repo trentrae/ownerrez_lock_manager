@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -118,9 +118,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_guest_name = stored.get("current_guest_name", "")
         self.current_lock_code = stored.get("current_lock_code", "")
 
-        for key, attr in (("current_checkin", "current_checkin"), ("current_checkout", "current_checkout")):
+        for key in ("current_checkin", "current_checkout"):
             iso = stored.get(key)
-            setattr(self, attr, dt_util.parse_datetime(iso) if iso else None)
+            setattr(self, key, dt_util.parse_datetime(iso) if iso else None)
 
         self._register_lock_listener()
 
@@ -197,7 +197,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raw_co = dt_util.parse_datetime(f"{departure}T{check_out}:00")
             if raw_co is None:
                 continue
-            co_ts = dt_util.as_utc(dt_util.as_local(raw_co)).timestamp()
+            co_ts = dt_util.as_local(raw_co).timestamp()
             if co_ts <= now_ts:
                 continue
             valid.append(b)
@@ -294,16 +294,20 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             _LOGGER.debug("OwnerRez: Checkout timer set for %s", checkout_dt)
 
-        # 24-hour reminder: 9 AM the day before check-in
-        day_before = (checkin_dt - timedelta(hours=24)).date()
-        remind_9am = dt_util.as_local(datetime.combine(day_before, time(9, 0, 0)))
+        # 24-hour reminder: 9 AM the calendar day before check-in
+        # Use date arithmetic (not timedelta(hours=24)) to handle DST correctly
+        day_before = checkin_dt.date() - timedelta(days=1)
+        remind_9am = checkin_dt.replace(
+            year=day_before.year, month=day_before.month, day=day_before.day,
+            hour=9, minute=0, second=0, microsecond=0,
+        )
         if remind_9am > now:
             self._cancel_24h_reminder = async_track_point_in_time(
                 self.hass, self._on_24h_reminder, remind_9am
             )
 
-        # Same-day checkout reminder: 8 AM on checkout day
-        checkout_8am = dt_util.as_local(datetime.combine(checkout_dt.date(), time(8, 0, 0)))
+        # Same-day checkout reminder: 8 AM on checkout day (preserves checkout_dt timezone)
+        checkout_8am = checkout_dt.replace(hour=8, minute=0, second=0, microsecond=0)
         if checkout_8am > now:
             self._cancel_checkout_day = async_track_point_in_time(
                 self.hass, self._on_checkout_day_reminder, checkout_8am
@@ -367,7 +371,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         {"entity_id": entity, "code_slot": slot},
                         blocking=True,
                     )
-                    await asyncio.sleep(3)
+                    # Brief pause between clear and set; Z-Wave commands are queued
+                    # sequentially so 1 s is enough in most cases.
+                    await asyncio.sleep(1)
                     await self.hass.services.async_call(
                         "zwave_js", "set_lock_usercode",
                         {"entity_id": entity, "code_slot": slot, "usercode": self.current_lock_code},
@@ -379,7 +385,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         {"entity_id": entity, "code_slot": slot, "usercode": self.current_lock_code},
                         blocking=True,
                     )
-                await asyncio.sleep(2)
+                # Small gap between consecutive locks to avoid flooding the mesh
+                if i < count - 1:
+                    await asyncio.sleep(1)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("OwnerRez: Failed to program %s slot %s: %s", entity, slot, err)
 
@@ -420,7 +428,8 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         {"entity_id": entity, "code_slot": slot},
                         blocking=True,
                     )
-                await asyncio.sleep(2)
+                if i < count - 1:
+                    await asyncio.sleep(1)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("OwnerRez: Failed to clear %s slot %s: %s", entity, slot, err)
 

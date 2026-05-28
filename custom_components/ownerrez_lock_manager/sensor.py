@@ -15,14 +15,11 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import OwnerRezCoordinator
-
-_DEVICE_INFO_KEYS = ("identifiers", "name", "manufacturer", "model", "sw_version")
 
 
 async def async_setup_entry(

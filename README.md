@@ -1,6 +1,6 @@
 # OwnerRez Lock Manager for Home Assistant
 
-**Version:** 2.0.0  
+**Version:** 2.0.1  
 [![HACS][hacs-badge]][hacs-url]
 
 Automatically manage smart lock codes for your vacation rental property by syncing booking data from OwnerRez. Lock codes are programmed a configurable number of minutes before guest check-in and automatically removed at checkout — all configured through the Home Assistant UI with no YAML editing required.
@@ -48,7 +48,7 @@ Automatically manage smart lock codes for your vacation rental property by synci
 
 ---
 
-## Installation via HACS (Recommended)
+## Installation via HACS (Recommended for v2.0.1+)
 
 ### Step 1: Add the Custom Repository in HACS
 
@@ -62,7 +62,7 @@ Automatically manage smart lock codes for your vacation rental property by synci
 ### Step 2: Install the Integration
 
 1. Search for **OwnerRez Lock Manager** in HACS → Integrations
-2. Click **Download** and confirm
+2. Open it and install the latest release (**v2.0.1**)
 3. **Restart Home Assistant**
 
 ### Step 3: Add the Integration via UI
@@ -78,6 +78,8 @@ Automatically manage smart lock codes for your vacation rental property by synci
 ### Step 4: Get Future Updates
 
 When a new version is released, HACS will show an update badge. Click **Update** in HACS and restart HA — no YAML files to touch.
+
+> Already on v2.0.0? Updating to **v2.0.1** is in-place through HACS and does not require re-adding the integration.
 
 ---
 
@@ -272,6 +274,9 @@ If you previously used `ownerrez_lock_manager.yaml` in your `/config/packages/` 
 ---
 
 ## Changelog
+
+### v2.0.1
+- Installation/upgrade instructions updated for the current HACS flow
 
 ### v2.0.0
 - Full rewrite as a proper Python custom component

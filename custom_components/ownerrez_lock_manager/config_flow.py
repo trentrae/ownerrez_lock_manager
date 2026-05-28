@@ -88,7 +88,7 @@ def _locks_schema(defaults: dict) -> vol.Schema:
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="lock")),
             vol.Optional(
                 CONF_NOTIFY_SERVICE,
-                default=notify_default or None,
+                default=None if not notify_default else notify_default,
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="notify")),
             vol.Optional(
                 CONF_LOCK_SERVICE_TYPE,

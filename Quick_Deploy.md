@@ -1,32 +1,12 @@
-🚀 Quick Deploy Instructions:
+🚀 Quick Deploy (v2.0.1)
 
-Add to /config/secrets.yaml:
+Use the HACS integration install path (the old YAML package flow is no longer recommended for 2.x).
 
-yaml   ownerrez_username: "your-email@ownerrez.com"
-   ownerrez_token: "pt_your_token_here"
+1. Open **HACS** in Home Assistant
+2. Add custom repo: `https://github.com/trentrae/Ownerrez_Lock_Manager` as **Integration**
+3. Install **OwnerRez Lock Manager** (latest: **v2.0.1**)
+4. Restart Home Assistant
+5. Go to **Settings → Devices & Services → Add Integration**
+6. Configure OwnerRez credentials and lock settings in the UI
 
-Enable packages in /config/configuration.yaml:
-
-yaml   homeassistant:
-     packages: !include_dir_named packages
-
-Create packages folder:
-
-bash   mkdir -p /config/packages
-
-Save the package:
-
-Save the artifact as /config/packages/ownerrez_lock_manager.yaml
-
-
-Customize these 3 things in the file:
-
-Line 197, 238, 260: Change lock.front_door to your lock entity
-Line 200, 241: Change code slot 5 if needed
-Lines 165, 211, 250, 279, 306, 327: Change notify.mobile_app to your notification service
-
-
-Restart Home Assistant
-
-The package is self-contained and won't conflict with existing configurations. All entities are prefixed with ownerrez_ to avoid naming conflicts.
-Ready to deploy! 🎉
+✅ No `/config/packages/ownerrez_lock_manager.yaml` or `secrets.yaml` entries are required for v2.0.1.

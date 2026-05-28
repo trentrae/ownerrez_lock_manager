@@ -15,6 +15,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import selector
 
 from .const import (
     API_BASE,
@@ -39,26 +40,56 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _as_entity_list(value: str | list[str] | None) -> list[str]:
+    """Convert stored comma-string or list to a clean entity list."""
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return []
+
+
+def _as_entity_string(value: str | None) -> str:
+    """Normalize a possibly-empty entity string."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _normalize_locks_input(user_input: dict) -> dict:
+    """Normalize selector output to persisted config format."""
+    normalized = dict(user_input)
+    normalized[CONF_LOCK_ENTITIES] = ",".join(_as_entity_list(normalized.get(CONF_LOCK_ENTITIES)))
+    normalized[CONF_PRIMARY_LOCK] = _as_entity_string(normalized.get(CONF_PRIMARY_LOCK))
+    normalized[CONF_NOTIFY_SERVICE] = _as_entity_string(normalized.get(CONF_NOTIFY_SERVICE))
+    return normalized
+
+
 # Voluptuous schema for lock / advanced settings (reused in both flows)
 def _locks_schema(defaults: dict) -> vol.Schema:
+    lock_defaults = _as_entity_list(defaults.get(CONF_LOCK_ENTITIES, ""))
+    primary_default = _as_entity_string(defaults.get(CONF_PRIMARY_LOCK, ""))
+    notify_default = _as_entity_string(defaults.get(CONF_NOTIFY_SERVICE, ""))
+
     return vol.Schema(
         {
             vol.Required(
                 CONF_LOCK_ENTITIES,
-                default=defaults.get(CONF_LOCK_ENTITIES, ""),
-            ): str,
+                default=lock_defaults,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="lock", multiple=True)
+            ),
             vol.Required(
                 CONF_CODE_SLOTS,
                 default=defaults.get(CONF_CODE_SLOTS, ""),
             ): str,
             vol.Required(
                 CONF_PRIMARY_LOCK,
-                default=defaults.get(CONF_PRIMARY_LOCK, ""),
-            ): str,
+                default=primary_default,
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="lock")),
             vol.Optional(
                 CONF_NOTIFY_SERVICE,
-                default=defaults.get(CONF_NOTIFY_SERVICE, ""),
-            ): str,
+                default=None if not notify_default else notify_default,
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="notify")),
             vol.Optional(
                 CONF_LOCK_SERVICE_TYPE,
                 default=defaults.get(CONF_LOCK_SERVICE_TYPE, LOCK_SERVICE_ZWAVE),
@@ -122,9 +153,10 @@ class OwnerRezConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.FlowResult:
         """Step 2: Collect lock entities and notification settings."""
         if user_input is not None:
+            normalized = _normalize_locks_input(user_input)
             return self.async_create_entry(
                 title=f"OwnerRez — Property {self._creds[CONF_PROPERTY_ID]}",
-                data={**self._creds, **user_input},
+                data={**self._creds, **normalized},
             )
 
         return self.async_show_form(
@@ -168,7 +200,7 @@ class OwnerRezOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict | None = None
     ) -> config_entries.FlowResult:
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(title="", data=_normalize_locks_input(user_input))
 
         # Pre-fill current values (options override data)
         current = {**self._config_entry.data, **self._config_entry.options}

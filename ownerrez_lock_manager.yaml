@@ -1,6 +1,6 @@
 ###############################################################################
 # OwnerRez Lock Manager for Home Assistant
-# Version: 1.3.2 (Modern Syntax - Pattern Warning Free)
+# Version: 1.3.3 (Modern Syntax - Pattern Warning Free)
 # https://github.com/trentrae/ownerrez-lock-manager
 #
 # INSTALLATION:
@@ -16,6 +16,16 @@
 # 4. Restart Home Assistant
 #
 # All property-specific settings live in secrets.yaml — no edits needed here.
+#
+# CHANGELOG v1.3.3:
+# - Fixed same-day checkout/check-in: booking sensor now filters by full
+#   checkout datetime (departure date + check_out time) instead of date only.
+#   Previously, a departing guest's booking remained "active" in the sensor
+#   all day on checkout day, blocking the incoming same-day guest from being
+#   synced and their lock code from being set.
+# - Automation 4 (checkout) now force-refreshes the REST sensor immediately
+#   after clearing the outgoing guest, so the same-day incoming booking is
+#   picked up without waiting for the next hourly poll.
 #
 # CHANGELOG v1.3.2:
 # - Updated to modern Home Assistant syntax (trigger: state, action:)
@@ -118,7 +128,7 @@ rest:
     headers:
       Content-Type: application/json
       Accept: application/json
-      User-Agent: Home Assistant OwnerRez Lock Manager v1.3.2
+      User-Agent: Home Assistant OwnerRez Lock Manager v1.3.3
     authentication: basic
     username: !secret ownerrez_username
     password: !secret ownerrez_token
@@ -173,10 +183,11 @@ template:
           {% if bookings is none or bookings | length == 0 %}
             none
           {% else %}
-            {% set today = now().strftime('%Y-%m-%d') %}
+            {% set now_ts = now().timestamp() %}
             {% set valid = namespace(bookings=[]) %}
             {% for b in bookings %}
-              {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+              {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+              {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                 {% set valid.bookings = valid.bookings + [b] %}
               {% endif %}
             {% endfor %}
@@ -192,10 +203,11 @@ template:
           guest_name: >
             {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
             {% if bookings is not none and bookings | length > 0 %}
-              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set now_ts = now().timestamp() %}
               {% set valid = namespace(bookings=[]) %}
               {% for b in bookings %}
-                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+                {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                   {% set valid.bookings = valid.bookings + [b] %}
                 {% endif %}
               {% endfor %}
@@ -211,10 +223,11 @@ template:
           arrival: >
             {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
             {% if bookings is not none and bookings | length > 0 %}
-              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set now_ts = now().timestamp() %}
               {% set valid = namespace(bookings=[]) %}
               {% for b in bookings %}
-                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+                {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                   {% set valid.bookings = valid.bookings + [b] %}
                 {% endif %}
               {% endfor %}
@@ -226,10 +239,11 @@ template:
           departure: >
             {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
             {% if bookings is not none and bookings | length > 0 %}
-              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set now_ts = now().timestamp() %}
               {% set valid = namespace(bookings=[]) %}
               {% for b in bookings %}
-                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+                {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                   {% set valid.bookings = valid.bookings + [b] %}
                 {% endif %}
               {% endfor %}
@@ -241,10 +255,11 @@ template:
           status: >
             {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
             {% if bookings is not none and bookings | length > 0 %}
-              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set now_ts = now().timestamp() %}
               {% set valid = namespace(bookings=[]) %}
               {% for b in bookings %}
-                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+                {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                   {% set valid.bookings = valid.bookings + [b] %}
                 {% endif %}
               {% endfor %}
@@ -255,10 +270,11 @@ template:
           property_id: >
             {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
             {% if bookings is not none and bookings | length > 0 %}
-              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set now_ts = now().timestamp() %}
               {% set valid = namespace(bookings=[]) %}
               {% for b in bookings %}
-                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+                {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                   {% set valid.bookings = valid.bookings + [b] %}
                 {% endif %}
               {% endfor %}
@@ -269,10 +285,11 @@ template:
           confirmation_code: >
             {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
             {% if bookings is not none and bookings | length > 0 %}
-              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set now_ts = now().timestamp() %}
               {% set valid = namespace(bookings=[]) %}
               {% for b in bookings %}
-                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+                {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                   {% set valid.bookings = valid.bookings + [b] %}
                 {% endif %}
               {% endfor %}
@@ -284,10 +301,11 @@ template:
           door_code: >
             {% set bookings = state_attr('sensor.ownerrez_bookings_raw', 'items') %}
             {% if bookings is not none and bookings | length > 0 %}
-              {% set today = now().strftime('%Y-%m-%d') %}
+              {% set now_ts = now().timestamp() %}
               {% set valid = namespace(bookings=[]) %}
               {% for b in bookings %}
-                {% if b.type == 'booking' and b.status == 'active' and b.departure >= today %}
+                {% set b_checkout_ts = (b.departure ~ 'T' ~ (b.check_out | default('10:00')) ~ ':00') | as_datetime | as_timestamp %}
+                {% if b.type == 'booking' and b.status == 'active' and b_checkout_ts > now_ts %}
                   {% set valid.bookings = valid.bookings + [b] %}
                 {% endif %}
               {% endfor %}
@@ -529,6 +547,9 @@ automation:
             - input_text.ownerrez_current_guest_name
             - input_text.ownerrez_current_lock_code
             - input_text.ownerrez_current_booking_id
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.ownerrez_bookings_raw
 
   ###########################################################################
   # AUTOMATION 5: Guest First Arrival Notification (MOBILE ONLY)

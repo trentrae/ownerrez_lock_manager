@@ -1,0 +1,17 @@
+activate_code_early:
+  name: Activate Guest Code Early
+  description: >
+    Manually program the guest door code to all configured locks right now,
+    before the scheduled check-in time.
+
+clear_guest_code:
+  name: Clear Guest Code
+  description: >
+    Manually clear the active guest door code from all configured locks
+    and reset booking state (equivalent to an early checkout).
+
+refresh_bookings:
+  name: Refresh Bookings
+  description: >
+    Force an immediate refresh of booking data from the OwnerRez API,
+    without waiting for the next scheduled hourly poll.

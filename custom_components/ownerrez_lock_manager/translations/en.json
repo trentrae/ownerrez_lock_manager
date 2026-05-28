@@ -1,0 +1,53 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "OwnerRez API Credentials",
+        "description": "Enter your OwnerRez login email, API token (found under Settings → API in OwnerRez), and the Property ID you want to manage.",
+        "data": {
+          "username": "OwnerRez Email",
+          "token": "API Token (starts with pt_)",
+          "property_id": "Property ID"
+        }
+      },
+      "locks": {
+        "title": "Lock & Notification Configuration",
+        "description": "Enter your lock entity IDs exactly as they appear in Home Assistant (e.g. lock.front_door). Comma-separate multiple locks and their matching code slots.",
+        "data": {
+          "lock_entities": "Lock Entity IDs (comma-separated)",
+          "code_slots": "Code Slots (comma-separated, one per lock)",
+          "primary_lock": "Primary Lock Entity (used for arrival detection)",
+          "notify_service": "Mobile Notify Service (optional, e.g. notify.mobile_app_iphone)",
+          "lock_service_type": "Lock Service Type",
+          "checkin_buffer_minutes": "Minutes before check-in to activate code",
+          "lookahead_days": "Days ahead to fetch bookings",
+          "lookback_days": "Days back to fetch bookings"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid credentials — check your email and API token.",
+      "cannot_connect": "Cannot reach the OwnerRez API — check your internet connection and property ID."
+    },
+    "abort": {
+      "already_configured": "OwnerRez Lock Manager is already configured for this property."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Update Lock Manager Settings",
+        "data": {
+          "lock_entities": "Lock Entity IDs (comma-separated)",
+          "code_slots": "Code Slots (comma-separated, one per lock)",
+          "primary_lock": "Primary Lock Entity (used for arrival detection)",
+          "notify_service": "Mobile Notify Service (optional)",
+          "lock_service_type": "Lock Service Type",
+          "checkin_buffer_minutes": "Minutes before check-in to activate code",
+          "lookahead_days": "Days ahead to fetch bookings",
+          "lookback_days": "Days back to fetch bookings"
+        }
+      }
+    }
+  }
+}

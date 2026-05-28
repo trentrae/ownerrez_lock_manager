@@ -12,12 +12,12 @@
       },
       "locks": {
         "title": "Lock & Notification Configuration",
-        "description": "Enter your lock entity IDs exactly as they appear in Home Assistant (e.g. lock.front_door). Comma-separate multiple locks and their matching code slots.",
+        "description": "Select your lock entities from Home Assistant, then enter matching code slots in the same order.",
         "data": {
-          "lock_entities": "Lock Entity IDs (comma-separated)",
+          "lock_entities": "Lock Entities",
           "code_slots": "Code Slots (comma-separated, one per lock)",
-          "primary_lock": "Primary Lock Entity (used for arrival detection)",
-          "notify_service": "Mobile Notify Service (optional, e.g. notify.mobile_app_iphone)",
+          "primary_lock": "Primary Lock (used for arrival detection)",
+          "notify_service": "Mobile Notify Target (optional)",
           "lock_service_type": "Lock Service Type",
           "checkin_buffer_minutes": "Minutes before check-in to activate code",
           "lookahead_days": "Days ahead to fetch bookings",
@@ -38,10 +38,10 @@
       "init": {
         "title": "Update Lock Manager Settings",
         "data": {
-          "lock_entities": "Lock Entity IDs (comma-separated)",
+          "lock_entities": "Lock Entities",
           "code_slots": "Code Slots (comma-separated, one per lock)",
-          "primary_lock": "Primary Lock Entity (used for arrival detection)",
-          "notify_service": "Mobile Notify Service (optional)",
+          "primary_lock": "Primary Lock (used for arrival detection)",
+          "notify_service": "Mobile Notify Target (optional)",
           "lock_service_type": "Lock Service Type",
           "checkin_buffer_minutes": "Minutes before check-in to activate code",
           "lookahead_days": "Days ahead to fetch bookings",

@@ -90,10 +90,10 @@ All settings are entered through the UI. No `secrets.yaml` or package YAML files
 | **OwnerRez Email** | Your OwnerRez login email | `you@example.com` |
 | **API Token** | Token from OwnerRez → Settings → API | `pt_abc123...` |
 | **Property ID** | Numeric ID from the OwnerRez property URL | `386633` |
-| **Lock Entity IDs** | Comma-separated HA entity IDs for your locks | `lock.front_door,lock.back_door` |
+| **Lock Entities** | Select your lock entities from Home Assistant | `lock.front_door, lock.back_door` |
 | **Code Slots** | Code slot number for each lock (same order) | `5,5` |
-| **Primary Lock** | The first/main lock used for arrival detection | `lock.front_door` |
-| **Mobile Notify Service** | HA notify service for mobile push (optional) | `notify.mobile_app_iphone` |
+| **Primary Lock** | Select the main lock used for arrival detection | `lock.front_door` |
+| **Mobile Notify Target** | Optional notify target selected from Home Assistant | `notify.mobile_app_iphone` |
 | **Lock Service Type** | `zwave_js` (default) or `lock` | `zwave_js` |
 | **Check-in Buffer Minutes** | Minutes before check-in to activate code | `5` |
 | **Lookahead Days** | How many days ahead to fetch bookings | `90` |

@@ -32,8 +32,11 @@ LOCK_SERVICE_OPTIONS = [LOCK_SERVICE_ZWAVE, LOCK_SERVICE_LOCK]
 # ── Storage ───────────────────────────────────────────────────────────────────
 STORAGE_VERSION = 1
 
+# ── Version ───────────────────────────────────────────────────────────────────
+VERSION = "2.0.2"
+
 # ── Platforms ─────────────────────────────────────────────────────────────────
-PLATFORMS = ["sensor", "button"]
+PLATFORMS = ["sensor", "binary_sensor", "button"]
 
 # ── Services ──────────────────────────────────────────────────────────────────
 SERVICE_ACTIVATE_EARLY = "activate_code_early"

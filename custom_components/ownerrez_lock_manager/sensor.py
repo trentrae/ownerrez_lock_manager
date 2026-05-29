@@ -3,6 +3,8 @@
 Exposes the following entities (all under the "OwnerRez Lock Manager" device):
 
   sensor.ownerrez_next_booking        – next booking ID + full attributes
+  sensor.ownerrez_next_guest_name     – upcoming guest name
+  sensor.ownerrez_next_checkin_date   – upcoming check-in date
   sensor.ownerrez_locks_programmed    – count of programmed locks
   sensor.ownerrez_current_guest       – current guest name
   sensor.ownerrez_current_checkin     – check-in datetime (ISO string)
@@ -18,7 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, VERSION
 from .coordinator import OwnerRezCoordinator
 
 
@@ -31,6 +33,8 @@ async def async_setup_entry(
     async_add_entities(
         [
             OwnerRezNextBookingSensor(coordinator, entry),
+            OwnerRezNextGuestNameSensor(coordinator, entry),
+            OwnerRezNextCheckinDateSensor(coordinator, entry),
             OwnerRezLocksProgrammedSensor(coordinator, entry),
             OwnerRezCurrentGuestSensor(coordinator, entry),
             OwnerRezCheckinSensor(coordinator, entry),
@@ -57,7 +61,7 @@ class _OwnerRezSensor(CoordinatorEntity[OwnerRezCoordinator], SensorEntity):
             "name": "OwnerRez Lock Manager",
             "manufacturer": "OwnerRez",
             "model": "Lock Manager",
-            "sw_version": "2.0.0",
+            "sw_version": VERSION,
         }
 
     @property
@@ -97,6 +101,61 @@ class OwnerRezNextBookingSensor(_OwnerRezSensor):
             "property_id": nb.get("property_id", ""),
             "status": nb.get("status", ""),
             "confirmation_code": nb.get("confirmation_code", ""),
+        }
+
+
+class OwnerRezNextGuestNameSensor(_OwnerRezSensor):
+    """Name of the next upcoming guest."""
+
+    _attr_name = "OwnerRez Next Guest Name"
+    _attr_icon = "mdi:account-arrow-right"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_next_guest_name"
+
+    @property
+    def native_value(self) -> str:
+        nb = self._next_booking
+        return nb.get("guest_name", "none") if nb else "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        nb = self._next_booking
+        if not nb:
+            return {}
+        return {
+            "arrival": nb.get("arrival", ""),
+            "check_in_time": nb.get("check_in_time", ""),
+            "confirmation_code": nb.get("confirmation_code", ""),
+        }
+
+
+class OwnerRezNextCheckinDateSensor(_OwnerRezSensor):
+    """Check-in date for the next upcoming booking."""
+
+    _attr_name = "OwnerRez Next Check-in Date"
+    _attr_icon = "mdi:calendar-check"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_next_checkin_date"
+
+    @property
+    def native_value(self) -> str:
+        nb = self._next_booking
+        return nb.get("arrival", "none") if nb else "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        nb = self._next_booking
+        if not nb:
+            return {}
+        checkin_dt = nb.get("checkin_dt")
+        return {
+            "check_in_time": nb.get("check_in_time", ""),
+            "checkin_datetime": checkin_dt.isoformat() if checkin_dt else None,
+            "guest_name": nb.get("guest_name", ""),
         }
 
 

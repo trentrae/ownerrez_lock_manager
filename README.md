@@ -1,6 +1,6 @@
 # OwnerRez Lock Manager for Home Assistant
 
-**Version:** 2.0.1  
+**Version:** 2.0.2  
 [![HACS][hacs-badge]][hacs-url]
 
 Automatically manage smart lock codes for your vacation rental property by syncing booking data from OwnerRez. Lock codes are programmed a configurable number of minutes before guest check-in and automatically removed at checkout — all configured through the Home Assistant UI with no YAML editing required.
@@ -31,7 +31,8 @@ Automatically manage smart lock codes for your vacation rental property by synci
 - Checkout completion confirmations
 
 ### 📊 Monitoring
-- Seven sensor entities expose real-time booking and lock status
+- Nine sensor entities expose real-time booking and lock status
+- One binary sensor for same-day check-in detection
 - Three button entities for manual control
 - Three callable HA services
 
@@ -62,7 +63,7 @@ Automatically manage smart lock codes for your vacation rental property by synci
 ### Step 2: Install the Integration
 
 1. Search for **OwnerRez Lock Manager** in HACS → Integrations
-2. Open it and install the latest release (**v2.0.1**)
+2. Open it and install the latest release (**v2.0.2**)
 3. **Restart Home Assistant**
 
 ### Step 3: Add the Integration via UI
@@ -79,7 +80,7 @@ Automatically manage smart lock codes for your vacation rental property by synci
 
 When a new version is released, HACS will show an update badge. Click **Update** in HACS and restart HA — no YAML files to touch.
 
-> Already on v2.0.0? Updating to **v2.0.1** is in-place through HACS and does not require re-adding the integration.
+> Already on v2.0.0 or v2.0.1? Updating to **v2.0.2** is in-place through HACS and does not require re-adding the integration.
 
 ---
 
@@ -112,12 +113,20 @@ To change any setting after setup: **Settings → Devices & Services → OwnerRe
 | Entity | Description |
 |--------|-------------|
 | `sensor.ownerrez_next_booking` | Next booking ID with full details as attributes |
+| `sensor.ownerrez_next_guest_name` | Upcoming guest name |
+| `sensor.ownerrez_next_checkin_date` | Upcoming check-in date |
 | `sensor.ownerrez_locks_programmed` | Number of locks currently programmed |
 | `sensor.ownerrez_current_guest` | Current guest name |
 | `sensor.ownerrez_current_checkin` | Current check-in datetime |
 | `sensor.ownerrez_current_checkout` | Current checkout datetime |
 | `sensor.ownerrez_current_lock_code` | Active door code *(hidden by default)* |
 | `sensor.ownerrez_booking_status` | `idle` / `booking_pending` / `code_active` / `guest_in` |
+
+### Binary Sensors
+
+| Entity | Description |
+|--------|-------------|
+| `binary_sensor.ownerrez_same_day_checkin` | `On` when today is a guest check-in day |
 
 ### Buttons
 
@@ -138,6 +147,98 @@ To change any setting after setup: **Settings → Devices & Services → OwnerRe
 ---
 
 ## Dashboard Cards
+
+A ready-to-use dashboard view is included below. You can paste this directly into a **Manual Card** (raw YAML editor) on any Lovelace dashboard.
+
+### Full Property Dashboard
+
+```yaml
+type: vertical-stack
+cards:
+  - type: entities
+    title: 📅 Next Booking
+    entities:
+      - entity: sensor.ownerrez_next_guest_name
+        name: Guest
+        icon: mdi:account-arrow-right
+      - entity: sensor.ownerrez_next_checkin_date
+        name: Check-in Date
+        icon: mdi:calendar-check
+      - entity: sensor.ownerrez_next_booking
+        name: Booking ID
+        icon: mdi:calendar-clock
+      - type: attribute
+        entity: sensor.ownerrez_next_booking
+        attribute: check_in_time
+        name: Check-in Time
+        icon: mdi:clock-in
+      - type: attribute
+        entity: sensor.ownerrez_next_booking
+        attribute: departure
+        name: Check-out Date
+        icon: mdi:calendar-remove
+  - type: entities
+    title: 🏠 Current Stay
+    entities:
+      - entity: sensor.ownerrez_booking_status
+        name: Status
+        icon: mdi:home-clock
+      - entity: sensor.ownerrez_current_guest
+        name: Guest Name
+        icon: mdi:account
+      - entity: sensor.ownerrez_current_checkin
+        name: Check-in
+        icon: mdi:calendar-arrow-right
+      - entity: sensor.ownerrez_current_checkout
+        name: Check-out
+        icon: mdi:calendar-arrow-left
+      - entity: sensor.ownerrez_locks_programmed
+        name: Locks Programmed
+        icon: mdi:lock-check
+  - type: conditional
+    conditions:
+      - entity: binary_sensor.ownerrez_same_day_checkin
+        state: "on"
+    card:
+      type: markdown
+      content: >
+        ## 🔔 Same-Day Check-in Today!
+
+        **{{ states('sensor.ownerrez_next_guest_name') }}**
+        is checking in today at
+        {{ state_attr('sensor.ownerrez_next_checkin_date', 'check_in_time') }}.
+  - type: entities
+    title: 🔧 Manual Controls
+    entities:
+      - entity: button.ownerrez_activate_guest_code_early
+      - entity: button.ownerrez_clear_guest_code
+      - entity: button.ownerrez_refresh_bookings
+```
+
+### Same-Day Check-in Alert Card
+
+Add this card anywhere on your dashboard — it only appears on check-in days:
+
+```yaml
+type: conditional
+conditions:
+  - entity: binary_sensor.ownerrez_same_day_checkin
+    state: "on"
+card:
+  type: entities
+  title: 🔔 Check-in Today
+  entities:
+    - entity: binary_sensor.ownerrez_same_day_checkin
+      name: Same-Day Check-in
+    - entity: sensor.ownerrez_next_guest_name
+      name: Arriving Guest
+    - entity: sensor.ownerrez_next_checkin_date
+      name: Check-in Date
+    - type: attribute
+      entity: sensor.ownerrez_next_checkin_date
+      attribute: check_in_time
+      name: Check-in Time
+```
 
 ### Booking Status Card
 
@@ -163,16 +264,12 @@ entities:
 type: entities
 title: Next Booking
 entities:
+  - entity: sensor.ownerrez_next_guest_name
+    name: Guest
+  - entity: sensor.ownerrez_next_checkin_date
+    name: Check-in Date
   - entity: sensor.ownerrez_next_booking
     name: Booking ID
-  - type: attribute
-    entity: sensor.ownerrez_next_booking
-    attribute: guest_name
-    name: Guest
-  - type: attribute
-    entity: sensor.ownerrez_next_booking
-    attribute: arrival
-    name: Arrival Date
   - type: attribute
     entity: sensor.ownerrez_next_booking
     attribute: check_in_time
@@ -274,6 +371,13 @@ If you previously used `ownerrez_lock_manager.yaml` in your `/config/packages/` 
 ---
 
 ## Changelog
+
+### v2.0.2
+- Fixed device `sw_version` to correctly reflect the installed version
+- Added `sensor.ownerrez_next_guest_name` — upcoming guest name as a dedicated sensor
+- Added `sensor.ownerrez_next_checkin_date` — upcoming check-in date as a dedicated sensor
+- Added `binary_sensor.ownerrez_same_day_checkin` — turns On on the day of a check-in for dashboard highlights and automations
+- Added full property dashboard card examples to the README (including same-day alert card)
 
 ### v2.0.1
 - Installation/upgrade instructions updated for the current HACS flow

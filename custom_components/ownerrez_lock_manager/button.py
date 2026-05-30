@@ -48,7 +48,7 @@ class _OwnerRezButton(ButtonEntity):
 class OwnerRezActivateEarlyButton(_OwnerRezButton):
     """Activate the guest door code right now (before scheduled time)."""
 
-    _attr_name = "Activate Guest Code Early"
+    _attr_name = "OwnerRez Activate Guest Code Early"
     _attr_icon = "mdi:lock-clock"
 
     @property
@@ -62,7 +62,7 @@ class OwnerRezActivateEarlyButton(_OwnerRezButton):
 class OwnerRezClearCodeButton(_OwnerRezButton):
     """Clear the active guest code from all locks immediately."""
 
-    _attr_name = "Clear Guest Code"
+    _attr_name = "OwnerRez Clear Guest Code"
     _attr_icon = "mdi:lock-remove"
 
     @property
@@ -76,7 +76,7 @@ class OwnerRezClearCodeButton(_OwnerRezButton):
 class OwnerRezRefreshButton(_OwnerRezButton):
     """Force an immediate refresh of booking data from OwnerRez."""
 
-    _attr_name = "Refresh Bookings"
+    _attr_name = "OwnerRez Refresh Bookings"
     _attr_icon = "mdi:refresh"
 
     @property

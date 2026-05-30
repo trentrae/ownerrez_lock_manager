@@ -372,6 +372,12 @@ If you previously used `ownerrez_lock_manager.yaml` in your `/config/packages/` 
 
 ## Changelog
 
+### v2.0.3
+- Split the active/current booking from the next arriving booking so dashboards can show the upcoming guest during an active stay
+- Persist the next arriving booking so it can be promoted after checkout even if the OwnerRez API is temporarily unreachable
+- Fixed `binary_sensor.ownerrez_same_day_checkin` to track the next actual arrival instead of the current stay
+- Tightened door-activity attribution so Z-Wave unlocks prefer the reported lock user/slot instead of always crediting the current guest
+
 ### v2.0.2
 - Fixed device `sw_version` to correctly reflect the installed version
 - Added `sensor.ownerrez_next_guest_name` — upcoming guest name as a dedicated sensor

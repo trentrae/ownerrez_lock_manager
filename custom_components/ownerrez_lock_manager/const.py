@@ -33,7 +33,7 @@ LOCK_SERVICE_OPTIONS = [LOCK_SERVICE_ZWAVE, LOCK_SERVICE_LOCK]
 STORAGE_VERSION = 1
 
 # ── Version ───────────────────────────────────────────────────────────────────
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
 PLATFORMS = ["sensor", "binary_sensor", "button"]

@@ -3,7 +3,7 @@
   "name": "OwnerRez Lock Manager",
   "documentation": "https://github.com/trentrae/Ownerrez_Lock_Manager",
   "issue_tracker": "https://github.com/trentrae/Ownerrez_Lock_Manager/issues",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "codeowners": ["@trentrae"],
   "requirements": [],
   "dependencies": [],

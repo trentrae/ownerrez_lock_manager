@@ -18,7 +18,8 @@ from typing import Any
 
 import aiohttp
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
     async_track_point_in_time,
@@ -75,6 +76,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_lock_code: str = ""
         self.current_checkin: datetime | None = None
         self.current_checkout: datetime | None = None
+        self.next_booking: dict[str, Any] | None = None
+        self._lock_device_ids: dict[str, str] = {}
+        self._recent_unlock_slots: dict[str, dict[str, Any]] = {}
 
         # ── Scheduled-callback cancellers ─────────────────────────────────────
         self._cancel_checkin: Any = None
@@ -82,6 +86,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_24h_reminder: Any = None
         self._cancel_checkout_day: Any = None
         self._cancel_lock_listener: Any = None
+        self._cancel_zwave_listener: Any = None
 
     # ── Properties / helpers ─────────────────────────────────────────────────
 
@@ -121,6 +126,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key in ("current_checkin", "current_checkout"):
             iso = stored.get(key)
             setattr(self, key, dt_util.parse_datetime(iso) if iso else None)
+        self.next_booking = self._restore_booking(stored.get("next_booking"))
 
         self._register_lock_listener()
 
@@ -132,6 +138,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "_cancel_24h_reminder",
             "_cancel_checkout_day",
             "_cancel_lock_listener",
+            "_cancel_zwave_listener",
         ):
             canceller = getattr(self, attr)
             if canceller is not None:
@@ -171,47 +178,42 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"OwnerRez API connection error: {err}") from err
 
         bookings: list[dict] = raw.get("items", [])
-        next_booking = self._find_next_booking(bookings)
+        current_booking, next_booking = self._select_bookings(bookings)
 
         # New booking detected → update state and schedule lock events
-        if next_booking and str(next_booking["id"]) != self.current_booking_id:
-            await self._sync_booking(next_booking)
+        if current_booking and not self._same_booking(current_booking):
+            await self._sync_booking(current_booking)
+        self.next_booking = next_booking
+        await self._save_state()
 
         # Startup / post-checkout recovery check
         await self._check_current_state()
 
-        return {"bookings": bookings, "next_booking": next_booking}
+        return {
+            "bookings": bookings,
+            "next_booking": self._display_next_booking(current_booking, next_booking),
+        }
 
     # ── Booking processing ────────────────────────────────────────────────────
 
-    def _find_next_booking(self, bookings: list[dict]) -> dict[str, Any] | None:
-        """Return processed data for the earliest future-checkout active booking."""
-        now_ts = dt_util.now().timestamp()
-        valid: list[dict] = []
-
-        for b in bookings:
-            if b.get("type") != "booking" or b.get("status") != "active":
-                continue
-            departure = b.get("departure", "")
-            check_out = b.get("check_out") or "10:00"
-            raw_co = dt_util.parse_datetime(f"{departure}T{check_out}:00")
-            if raw_co is None:
-                continue
-            co_ts = dt_util.as_local(raw_co).timestamp()
-            if co_ts <= now_ts:
-                continue
-            valid.append(b)
-
-        if not valid:
+    def _normalize_booking(self, b: dict[str, Any]) -> dict[str, Any] | None:
+        """Return normalized booking data or None when the booking is unusable."""
+        if b.get("type") != "booking" or b.get("status") != "active":
             return None
-
-        valid.sort(key=lambda b: b.get("arrival", ""))
-        b = valid[0]
 
         arrival = b.get("arrival", "")
         check_in = b.get("check_in") or "16:00"
         departure = b.get("departure", "")
         check_out = b.get("check_out") or "10:00"
+        raw_ci = dt_util.parse_datetime(f"{arrival}T{check_in}:00")
+        raw_co = dt_util.parse_datetime(f"{departure}T{check_out}:00")
+        if raw_ci is None or raw_co is None:
+            return None
+
+        checkin_dt = dt_util.as_local(raw_ci)
+        checkout_dt = dt_util.as_local(raw_co)
+        if checkout_dt.timestamp() <= dt_util.now().timestamp():
+            return None
 
         guest = b.get("guest") or {}
         first = guest.get("first_name", "")
@@ -221,11 +223,6 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         door_codes: list[dict] = b.get("door_codes") or []
         door_code = door_codes[0].get("code", "") if door_codes else ""
 
-        raw_ci = dt_util.parse_datetime(f"{arrival}T{check_in}:00")
-        raw_co = dt_util.parse_datetime(f"{departure}T{check_out}:00")
-        if raw_ci is None or raw_co is None:
-            return None
-
         return {
             "id": str(b.get("id", "")),
             "guest_name": guest_name,
@@ -233,15 +230,89 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "departure": departure,
             "check_in_time": check_in,
             "check_out_time": check_out,
-            "checkin_dt": dt_util.as_local(raw_ci),
-            "checkout_dt": dt_util.as_local(raw_co),
+            "checkin_dt": checkin_dt,
+            "checkout_dt": checkout_dt,
             "door_code": door_code,
             "property_id": str(b.get("property_id", "")),
             "status": b.get("status", ""),
             "confirmation_code": b.get("platform_reservation_number", ""),
         }
 
-    async def _sync_booking(self, booking: dict[str, Any]) -> None:
+    def _select_bookings(
+        self, bookings: list[dict]
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Return the operational booking and the next arriving booking."""
+        now_ts = dt_util.now().timestamp()
+        valid: list[dict[str, Any]] = []
+
+        for b in bookings:
+            normalized = self._normalize_booking(b)
+            if normalized:
+                valid.append(normalized)
+
+        if not valid:
+            return None, None
+
+        valid.sort(key=lambda booking: booking["checkin_dt"])
+        active_booking = next(
+            (
+                booking
+                for booking in valid
+                if booking["checkin_dt"].timestamp() <= now_ts < booking["checkout_dt"].timestamp()
+            ),
+            None,
+        )
+        upcoming_booking = next(
+            (booking for booking in valid if booking["checkin_dt"].timestamp() > now_ts),
+            None,
+        )
+        return active_booking or upcoming_booking, upcoming_booking
+
+    def _display_next_booking(
+        self,
+        current_booking: dict[str, Any] | None,
+        next_booking: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Return the booking to expose as the next arriving guest."""
+        if next_booking:
+            return next_booking
+        if current_booking and current_booking["checkin_dt"] > dt_util.now():
+            return current_booking
+        return None
+
+    def _same_booking(self, booking: dict[str, Any]) -> bool:
+        """Return True when the normalized booking matches stored current state."""
+        return (
+            booking["id"] == self.current_booking_id
+            and booking["guest_name"] == self.current_guest_name
+            and booking["door_code"] == self.current_lock_code
+            and booking["checkin_dt"] == self.current_checkin
+            and booking["checkout_dt"] == self.current_checkout
+        )
+
+    def _restore_booking(self, booking: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Restore a persisted booking dict."""
+        if not booking:
+            return None
+        restored = dict(booking)
+        for key in ("checkin_dt", "checkout_dt"):
+            iso = restored.get(key)
+            restored[key] = dt_util.parse_datetime(iso) if iso else None
+        if not restored.get("id") or not restored.get("checkin_dt") or not restored.get("checkout_dt"):
+            return None
+        return restored
+
+    def _serialize_booking(self, booking: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Serialize a booking dict for HA storage."""
+        if not booking:
+            return None
+        serialized = dict(booking)
+        for key in ("checkin_dt", "checkout_dt"):
+            dt_value = serialized.get(key)
+            serialized[key] = dt_value.isoformat() if dt_value else None
+        return serialized
+
+    async def _sync_booking(self, booking: dict[str, Any], notify: bool = True) -> None:
         """Store new booking data, reschedule callbacks, and notify."""
         self.current_booking_id = booking["id"]
         self.current_guest_name = booking["guest_name"]
@@ -250,8 +321,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_checkout = booking["checkout_dt"]
         await self._save_state()
         self._schedule_lock_events(booking)
+        self.async_update_listeners()
 
-        if booking["door_code"]:
+        if notify and booking["door_code"]:
             await self._notify_ha(
                 "✅ OwnerRez Booking Synced",
                 (
@@ -438,6 +510,8 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_guest_name = ""
         self.current_lock_code = ""
         self.current_booking_id = ""
+        self.current_checkin = None
+        self.current_checkout = None
         await self._save_state()
         self.async_update_listeners()
 
@@ -446,6 +520,17 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             f"**{guest}**'s code cleared from {count} lock(s).",
             "ownerrez_checkout",
         )
+
+        if self.next_booking:
+            promoted_booking = self.next_booking
+            self.next_booking = None
+            await self._sync_booking(promoted_booking, notify=False)
+            self.async_set_updated_data(
+                {
+                    "bookings": (self.data or {}).get("bookings", []),
+                    "next_booking": None,
+                }
+            )
 
         # Immediately re-fetch so a same-day incoming guest is picked up
         self.hass.async_create_task(self.async_refresh())
@@ -484,10 +569,20 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._cancel_lock_listener:
             self._cancel_lock_listener()
             self._cancel_lock_listener = None
+        if self._cancel_zwave_listener:
+            self._cancel_zwave_listener()
+            self._cancel_zwave_listener = None
 
         primary = self._cfg.get(CONF_PRIMARY_LOCK, "")
         if not primary:
             return
+
+        entity_reg = er.async_get(self.hass)
+        self._lock_device_ids = {}
+        for entity_id in self.lock_entities:
+            entry = entity_reg.async_get(entity_id)
+            if entry and entry.device_id:
+                self._lock_device_ids[entry.device_id] = entity_id
 
         @callback
         def _on_lock_change(entity_id: str, _old_state: Any, new_state: Any) -> None:
@@ -501,6 +596,95 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass, primary, _on_lock_change
         )
 
+        if self.service_type == LOCK_SERVICE_ZWAVE:
+            @callback
+            def _on_zwave_notification(event: Event) -> None:
+                device_id = event.data.get("device_id")
+                parameters = event.data.get("parameters") or {}
+                raw_slot = parameters.get("userId") or parameters.get("user_id")
+                event_label = str(event.data.get("event_label") or "")
+                property_key_name = str(event.data.get("property_key_name") or "")
+                if not device_id or raw_slot in (None, ""):
+                    return
+                if "unlock" not in event_label.lower() and "unlock" not in property_key_name.lower():
+                    return
+                entity_id = self._lock_device_ids.get(device_id)
+                if not entity_id:
+                    return
+                try:
+                    slot = int(raw_slot)
+                except (TypeError, ValueError):
+                    return
+                self._recent_unlock_slots[entity_id] = {
+                    "slot": slot,
+                    "seen_at": dt_util.now(),
+                }
+
+            self._cancel_zwave_listener = self.hass.bus.async_listen(
+                "zwave_js_notification", _on_zwave_notification
+            )
+
+    def _expected_guest_slot(self, entity_id: str) -> int | None:
+        """Return the configured guest slot for a lock entity."""
+        try:
+            index = self.lock_entities.index(entity_id)
+            return self.code_slots[index]
+        except (ValueError, IndexError):
+            return None
+
+    def _resolve_unlock_actor(self, entity_id: str) -> tuple[str, bool]:
+        """Return a human-friendly unlock actor label and whether it was the guest code."""
+        state = self.hass.states.get(entity_id)
+        attrs = state.attributes if state else {}
+        expected_slot = self._expected_guest_slot(entity_id)
+
+        actor = next(
+            (
+                str(attrs[key]).strip()
+                for key in (
+                    "changed_by",
+                    "changed_by_name",
+                    "changed_by_user",
+                    "last_unlocked_by",
+                )
+                if attrs.get(key)
+            ),
+            "",
+        )
+
+        raw_slot = next(
+            (
+                attrs.get(key)
+                for key in ("code_slot", "user_id", "userId", "slot")
+                if attrs.get(key) not in (None, "", "unknown", "unavailable")
+            ),
+            None,
+        )
+        if raw_slot in (None, ""):
+            recent = self._recent_unlock_slots.get(entity_id)
+            if recent and (dt_util.now() - recent["seen_at"]) <= timedelta(seconds=15):
+                raw_slot = recent["slot"]
+
+        slot: int | None = None
+        if raw_slot not in (None, ""):
+            try:
+                slot = int(raw_slot)
+            except (TypeError, ValueError):
+                slot = None
+
+        if actor and slot is not None:
+            return f"{actor} (slot {slot})", expected_slot == slot
+        if actor:
+            guest_name = self.current_guest_name.casefold()
+            return actor, bool(guest_name and guest_name in actor.casefold())
+        if slot is not None:
+            if expected_slot == slot:
+                return f"{self.current_guest_name} (slot {slot})", True
+            return f"User slot {slot}", False
+        if self.service_type == LOCK_SERVICE_ZWAVE:
+            return "Unknown user", False
+        return self.current_guest_name or "Unknown user", bool(self.current_guest_name)
+
     async def _handle_arrival(self, entity_id: str) -> None:
         """Process a guest door-unlock event."""
         if entity_id not in self.lock_entities:
@@ -510,16 +694,20 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id)
         friendly = state.attributes.get("friendly_name", entity_id) if state else entity_id
         notify_svc = self._cfg.get(CONF_NOTIFY_SERVICE, "")
+        actor, used_guest_code = self._resolve_unlock_actor(entity_id)
+        activity_message = (
+            f"{actor} unlocked door using the OwnerRez guest slot"
+            if used_guest_code
+            else f"{actor} unlocked door using a different lock user/slot"
+        )
 
         # Log every unlock to the HA logbook
         try:
             await self.hass.services.async_call(
                 "logbook", "log",
                 {
-                    "name": f"{friendly} Guest Access",
-                    "message": (
-                        f"{self.current_guest_name} unlocked door using OwnerRez guest code"
-                    ),
+                    "name": f"{friendly} Access",
+                    "message": activity_message,
                     "entity_id": entity_id,
                     "domain": "lock",
                 },
@@ -532,12 +720,12 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._send_mobile(
                 notify_svc,
                 "🔓 Door Activity",
-                f"{self.current_guest_name} unlocked door\n\n🕐 {now.strftime('%I:%M:%S %p')}",
+                f"{actor} unlocked door\n\n🕐 {now.strftime('%I:%M:%S %p')}",
                 {"tag": "door_unlock", "group": "guest_activity"},
             )
 
         # First-arrival notifications
-        if not self.guest_arrived:
+        if used_guest_code and not self.guest_arrived:
             self.guest_arrived = True
             await self._save_state()
             self.async_update_listeners()
@@ -621,5 +809,6 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "current_checkout": (
                     self.current_checkout.isoformat() if self.current_checkout else None
                 ),
+                "next_booking": self._serialize_booking(self.next_booking),
             }
         )

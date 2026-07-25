@@ -28,6 +28,7 @@ async def async_setup_entry(
     async_add_entities(
         [
             OwnerRezSameDayCheckinBinarySensor(coordinator, entry),
+            OwnerRezGuestArrivedBinarySensor(coordinator, entry),
             OwnerRezAllLocksProgrammedBinarySensor(coordinator, entry),
         ]
     )
@@ -91,6 +92,45 @@ class OwnerRezSameDayCheckinBinarySensor(
             "arrival": next_booking.get("arrival", ""),
             "check_in_time": next_booking.get("check_in_time", ""),
             "checkin_datetime": checkin_dt.isoformat() if checkin_dt else None,
+        }
+
+
+class OwnerRezGuestArrivedBinarySensor(
+    CoordinatorEntity[OwnerRezCoordinator], BinarySensorEntity
+):
+    """Binary sensor that is On when the current guest has arrived."""
+
+    _attr_name = "OwnerRez Guest Arrived"
+    _attr_icon = "mdi:account-check"
+
+    def __init__(self, coordinator: OwnerRezCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_guest_arrived"
+
+    @property
+    def device_info(self) -> dict:
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name": "OwnerRez Lock Manager",
+            "manufacturer": "OwnerRez",
+            "model": "Lock Manager",
+            "sw_version": VERSION,
+        }
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.guest_arrived
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "current_guest_name": self.coordinator.current_guest_name,
+            "current_booking_id": self.coordinator.current_booking_id,
+            "code_active": self.coordinator.code_active,
         }
 
 

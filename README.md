@@ -1,6 +1,6 @@
 # OwnerRez Lock Manager for Home Assistant
 
-**Version:** 2.0.6  
+**Version:** 2.0.7  
 [![HACS][hacs-badge]][hacs-url]
 
 Automatically manage smart lock codes for your vacation rental property by syncing booking data from OwnerRez. Lock codes are programmed a configurable number of minutes before guest check-in and automatically removed at checkout — all configured through the Home Assistant UI with no YAML editing required.
@@ -32,7 +32,7 @@ Automatically manage smart lock codes for your vacation rental property by synci
 
 ### 📊 Monitoring
 - Nine sensor entities expose real-time booking and lock status
-- One binary sensor for same-day check-in detection
+- Three binary sensors for same-day check-in, guest arrival, and lock readiness
 - Three button entities for manual control
 - Three callable HA services
 
@@ -183,6 +183,9 @@ cards:
       - entity: sensor.ownerrez_booking_status
         name: Status
         icon: mdi:home-clock
+      - entity: binary_sensor.ownerrez_guest_arrived
+        name: Guest Arrived
+        icon: mdi:account-check
       - entity: sensor.ownerrez_current_guest
         name: Guest Name
         icon: mdi:account
@@ -417,6 +420,10 @@ If you previously used `ownerrez_lock_manager.yaml` in your `/config/packages/` 
 ---
 
 ## Changelog
+
+### v2.0.7
+- Added `binary_sensor.ownerrez_guest_arrived` so the dashboard can show a direct arrived/not-arrived state
+- Updated the current-stay dashboard example to include the guest-arrived indicator
 
 ### v2.0.6
 - Updated arrival detection so any configured lock can mark the guest as arrived on first valid unlock use

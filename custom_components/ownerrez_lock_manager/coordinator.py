@@ -186,6 +186,27 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         bookings: list[dict] = raw.get("items", [])
         current_booking, next_booking = self._select_bookings(bookings)
 
+        # Never switch to a future booking while the current stored stay window
+        # has not reached checkout yet.
+        now_local = dt_util.now()
+        if (
+            self.current_booking_id
+            and self.current_checkout
+            and now_local < self.current_checkout
+            and (
+                current_booking is None
+                or current_booking.get("id") != self.current_booking_id
+            )
+        ):
+            _LOGGER.warning(
+                "OwnerRez: Ignoring booking switch to %s before checkout; "
+                "keeping current booking %s active until %s",
+                current_booking.get("id") if current_booking else "none",
+                self.current_booking_id,
+                self.current_checkout,
+            )
+            current_booking = None
+
         # New booking detected → update state and schedule lock events
         if current_booking and not self._same_booking(current_booking):
             await self._sync_booking(current_booking)
@@ -472,7 +493,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "ownerrez_checkin",
         )
 
-    async def _do_checkout(self) -> None:
+    async def _do_checkout(self, *, clear_booking_state: bool = True, promote_next: bool = True) -> None:
         """Clear guest code from all configured locks."""
         locks = self.lock_entities
         slots = self.code_slots
@@ -499,11 +520,14 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.code_active = False
         self.guest_arrived = False
-        self.current_guest_name = ""
-        self.current_lock_code = ""
-        self.current_booking_id = ""
-        self.current_checkin = None
-        self.current_checkout = None
+
+        if clear_booking_state:
+            self.current_guest_name = ""
+            self.current_lock_code = ""
+            self.current_booking_id = ""
+            self.current_checkin = None
+            self.current_checkout = None
+
         await self._save_state()
         self.async_update_listeners()
 
@@ -517,7 +541,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # some locks apply slot changes slowly over Z-Wave/Zigbee meshes.
         self.hass.async_create_task(self._post_checkout_verification())
 
-        if self.next_booking:
+        if clear_booking_state and promote_next and self.next_booking:
             promoted_booking = self.next_booking
             self.next_booking = None
             await self._sync_booking(promoted_booking, notify=False)
@@ -528,8 +552,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             )
 
-        # Immediately re-fetch so a same-day incoming guest is picked up
-        self.hass.async_create_task(self.async_refresh())
+        # Immediately re-fetch so a same-day incoming guest is picked up.
+        if clear_booking_state:
+            self.hass.async_create_task(self.async_refresh())
 
     # ── Reminder notifications ────────────────────────────────────────────────
 
@@ -767,6 +792,22 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.code_active:
             _LOGGER.warning("OwnerRez: clear_guest_code skipped — no active code")
             return
+
+        now_local = dt_util.now()
+        active_stay = bool(
+            self.current_checkin
+            and self.current_checkout
+            and self.current_checkin <= now_local < self.current_checkout
+        )
+
+        if active_stay:
+            _LOGGER.info(
+                "OwnerRez: Manual clear during active stay for booking %s; preserving current booking state",
+                self.current_booking_id,
+            )
+            await self._do_checkout(clear_booking_state=False, promote_next=False)
+            return
+
         await self._do_checkout()
 
     # ── Internal helpers ──────────────────────────────────────────────────────

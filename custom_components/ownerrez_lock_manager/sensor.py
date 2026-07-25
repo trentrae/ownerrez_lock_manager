@@ -19,6 +19,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, VERSION
 from .coordinator import OwnerRezCoordinator
@@ -307,6 +308,17 @@ class OwnerRezBookingStatusSensor(_OwnerRezSensor):
     @property
     def native_value(self) -> str:
         c = self.coordinator
+        now = dt_util.now()
+
+        # If we are inside the current stay window, report stay state first,
+        # even when lock programming status is temporarily out of sync.
+        if (
+            c.current_checkin is not None
+            and c.current_checkout is not None
+            and c.current_checkin <= now < c.current_checkout
+        ):
+            return "guest_in" if c.guest_arrived else "stay_active"
+
         if c.code_active:
             return "guest_in" if c.guest_arrived else "code_active"
         if self._next_booking:
@@ -316,8 +328,15 @@ class OwnerRezBookingStatusSensor(_OwnerRezSensor):
     @property
     def extra_state_attributes(self) -> dict:
         c = self.coordinator
+        now = dt_util.now()
+        in_active_stay = bool(
+            c.current_checkin is not None
+            and c.current_checkout is not None
+            and c.current_checkin <= now < c.current_checkout
+        )
         return {
             "code_active": c.code_active,
             "guest_arrived": c.guest_arrived,
             "current_booking_id": c.current_booking_id,
+            "in_active_stay": in_active_stay,
         }

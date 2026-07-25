@@ -68,17 +68,35 @@ class OwnerRezSameDayCheckinBinarySensor(
     @property
     def is_on(self) -> bool:
         """Return True when today is the arrival date of the next booking."""
+        now = dt_util.now()
+
+        # Don't show a same-day arrival banner while a current guest stay is active.
+        current_checkin = self.coordinator.current_checkin
+        current_checkout = self.coordinator.current_checkout
+        if (
+            current_checkin is not None
+            and current_checkout is not None
+            and current_checkin <= now < current_checkout
+        ):
+            return False
+
         next_booking: dict | None = (self.coordinator.data or {}).get("next_booking")
         if not next_booking:
             return False
-        arrival: str = next_booking.get("arrival", "")
-        if not arrival:
-            return False
-        today = dt_util.now().date()
-        try:
-            arrival_date = date.fromisoformat(arrival)
-        except ValueError:
-            return False
+        today = now.date()
+
+        checkin_dt = next_booking.get("checkin_dt")
+        if checkin_dt is not None:
+            arrival_date = checkin_dt.date()
+        else:
+            arrival: str = next_booking.get("arrival", "")
+            if not arrival:
+                return False
+            try:
+                arrival_date = date.fromisoformat(arrival)
+            except ValueError:
+                return False
+
         return arrival_date == today
 
     @property

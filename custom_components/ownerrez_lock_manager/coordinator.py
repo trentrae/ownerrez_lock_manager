@@ -1042,7 +1042,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif self._slot_is_cleared(entity_id, slot):
                 status = "cleared"
                 cleared += 1
-            elif self.service_type == LOCK_SERVICE_ZWAVE and not self.code_active:
+            elif not self.code_active:
                 # If no guest code is active and slot telemetry is missing,
                 # present idle slots as cleared rather than unknown.
                 status = "cleared"

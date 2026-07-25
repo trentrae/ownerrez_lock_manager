@@ -352,7 +352,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if notify and booking["door_code"]:
             await self._notify_ha(
-                "Γ£à OwnerRez Booking Synced",
+                "OwnerRez Booking Synced",
                 (
                     f"**Guest:** {booking['guest_name']}\n"
                     f"**Check-in:** {booking['arrival']} at {booking['check_in_time']}\n"
@@ -485,7 +485,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_update_listeners()
 
         await self._notify_ha(
-            "≡ƒöô Guest Check-in Active",
+            "Guest Check-in Active",
             (
                 f"**{self.current_guest_name}** can now check in.\n"
                 f"Code **{self.current_lock_code}** verified on {success_count}/{count} lock(s)."
@@ -532,7 +532,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_update_listeners()
 
         await self._notify_ha(
-            "Γ£à Guest Check-out Complete",
+            "Guest Check-out Complete",
             f"**{guest}**'s code verified cleared on {cleared_count}/{count} lock(s).",
             "ownerrez_checkout",
         )
@@ -562,7 +562,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.current_guest_name:
             return
         await self._notify_ha(
-            "≡ƒôà Guest Checking In Tomorrow",
+            "Guest Checking In Tomorrow",
             (
                 f"**{self.current_guest_name}** checks in tomorrow.\n"
                 f"Code: **{self.current_lock_code}**"
@@ -575,7 +575,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         t = self.current_checkout.strftime("%I:%M %p")
         await self._notify_ha(
-            "≡ƒÅü Guest Checks Out Today",
+            "Guest Checks Out Today",
             (
                 f"**{self.current_guest_name}** checks out at {t}.\n"
                 "Lock codes will be disabled automatically."
@@ -770,8 +770,8 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if notify_svc:
             await self._send_mobile(
                 notify_svc,
-                "≡ƒöô Door Activity",
-                f"{actor} unlocked door\n\n≡ƒòÉ {now.strftime('%I:%M:%S %p')}",
+                "Door Activity",
+                f"{actor} unlocked door\n\nTime: {now.strftime('%I:%M:%S %p')}",
                 {"tag": "door_unlock", "group": "guest_activity"},
             )
 
@@ -782,7 +782,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_update_listeners()
 
             await self._notify_ha(
-                "≡ƒÜ¬ Guest Arrived",
+                "Guest Arrived",
                 (
                     f"**{self.current_guest_name}** unlocked {friendly}.\n\n"
                     f"**Time:** {now.strftime('%I:%M %p')}\n"
@@ -794,11 +794,11 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if notify_svc:
                 await self._send_mobile(
                     notify_svc,
-                    f"≡ƒÜ¬ {self.current_guest_name} Arrived",
+                    f"{self.current_guest_name} Arrived",
                     (
                         f"Unlocked {friendly}\n\n"
-                        f"≡ƒòÉ {now.strftime('%I:%M:%S %p')}\n"
-                        f"≡ƒôà {now.strftime('%A, %B %d, %Y')}"
+                        f"Time: {now.strftime('%I:%M:%S %p')}\n"
+                        f"Date: {now.strftime('%A, %B %d, %Y')}"
                     ),
                     {
                         "notification_icon": "mdi:account-check",
@@ -813,14 +813,14 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def activate_code_early(self) -> None:
         """Manually activate guest code before the scheduled check-in time."""
         if not self.current_guest_name or not self.current_lock_code or self.code_active:
-            _LOGGER.warning("OwnerRez: activate_code_early skipped ΓÇö no pending booking or already active")
+            _LOGGER.warning("OwnerRez: activate_code_early skipped - no pending booking or already active")
             return
         await self._do_checkin()
 
     async def clear_guest_code(self) -> None:
         """Manually clear the active guest code."""
         if not self.code_active:
-            _LOGGER.warning("OwnerRez: clear_guest_code skipped ΓÇö no active code")
+            _LOGGER.warning("OwnerRez: clear_guest_code skipped - no active code")
             return
 
         now_local = dt_util.now()

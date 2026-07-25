@@ -38,7 +38,6 @@ from .const import (
     CONF_LOOKBACK_DAYS,
     CONF_LOOKAHEAD_DAYS,
     CONF_NOTIFY_SERVICE,
-    CONF_PRIMARY_LOCK,
     CONF_PROPERTY_ID,
     CONF_TOKEN,
     CONF_USERNAME,
@@ -74,7 +73,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._entry = entry
         self._store: Store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
 
-        # ── Persistent runtime state ──────────────────────────────────────────
+        # ΓöÇΓöÇ Persistent runtime state ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         self.code_active: bool = False
         self.guest_arrived: bool = False
         self.current_booking_id: str = ""
@@ -86,7 +85,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lock_device_ids: dict[str, str] = {}
         self._recent_unlock_slots: dict[str, dict[str, Any]] = {}
 
-        # ── Scheduled-callback cancellers ─────────────────────────────────────
+        # ΓöÇΓöÇ Scheduled-callback cancellers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         self._cancel_checkin: Any = None
         self._cancel_checkout: Any = None
         self._cancel_24h_reminder: Any = None
@@ -94,7 +93,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_lock_listener: Any = None
         self._cancel_zwave_listener: Any = None
 
-    # ── Properties / helpers ─────────────────────────────────────────────────
+    # ΓöÇΓöÇ Properties / helpers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     @property
     def _cfg(self) -> dict[str, Any]:
@@ -117,7 +116,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def service_type(self) -> str:
         return self._cfg.get(CONF_LOCK_SERVICE_TYPE, LOCK_SERVICE_ZWAVE)
 
-    # ── Lifecycle ────────────────────────────────────────────────────────────
+    # ΓöÇΓöÇ Lifecycle ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     async def async_setup(self) -> None:
         """Load persisted state and register the lock listener."""
@@ -151,7 +150,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 canceller()
             setattr(self, attr, None)
 
-    # ── Data update ──────────────────────────────────────────────────────────
+    # ΓöÇΓöÇ Data update ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch bookings from OwnerRez and process state."""
@@ -207,7 +206,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             current_booking = None
 
-        # New booking detected → update state and schedule lock events
+        # New booking detected ΓåÆ update state and schedule lock events
         if current_booking and not self._same_booking(current_booking):
             await self._sync_booking(current_booking)
         self.next_booking = next_booking
@@ -221,7 +220,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next_booking": self._display_next_booking(current_booking, next_booking),
         }
 
-    # ── Booking processing ────────────────────────────────────────────────────
+    # ΓöÇΓöÇ Booking processing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     def _normalize_booking(self, b: dict[str, Any]) -> dict[str, Any] | None:
         """Return normalized booking data or None when the booking is unusable."""
@@ -352,7 +351,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if notify and booking["door_code"]:
             await self._notify_ha(
-                "✅ OwnerRez Booking Synced",
+                "Γ£à OwnerRez Booking Synced",
                 (
                     f"**Guest:** {booking['guest_name']}\n"
                     f"**Check-in:** {booking['arrival']} at {booking['check_in_time']}\n"
@@ -362,7 +361,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "ownerrez_booking_sync",
             )
 
-    # ── Scheduling ────────────────────────────────────────────────────────────
+    # ΓöÇΓöÇ Scheduling ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     def _cancel_timers(self) -> None:
         for attr in ("_cancel_checkin", "_cancel_checkout", "_cancel_24h_reminder", "_cancel_checkout_day"):
@@ -428,7 +427,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _on_checkout_day_reminder(self, _now: datetime) -> None:
         self.hass.async_create_task(self._send_checkout_day_reminder())
 
-    # ── Startup state recovery ────────────────────────────────────────────────
+    # ΓöÇΓöÇ Startup state recovery ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     async def _check_current_state(self) -> None:
         """On HA start / hourly refresh: verify lock state matches expectations."""
@@ -436,20 +435,20 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.current_checkin or not self.current_checkout:
             return
 
-        # Past checkout → clear if still marked active
+        # Past checkout ΓåÆ clear if still marked active
         if now >= self.current_checkout:
             if self.code_active:
                 _LOGGER.info("OwnerRez: Checkout has passed; clearing locks")
                 await self._do_checkout()
             return
 
-        # Within active window → program if not already active
+        # Within active window ΓåÆ program if not already active
         buffer = timedelta(minutes=self.checkin_buffer_minutes)
         if now >= (self.current_checkin - buffer) and not self.code_active and self.current_lock_code:
             _LOGGER.info("OwnerRez: Mid-stay detected on startup; programming locks")
             await self._do_checkin()
 
-    # ── Lock operations ───────────────────────────────────────────────────────
+    # ΓöÇΓöÇ Lock operations ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     async def _do_checkin(self) -> None:
         """Program all configured locks with the guest code."""
@@ -485,7 +484,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_update_listeners()
 
         await self._notify_ha(
-            "🔓 Guest Check-in Active",
+            "≡ƒöô Guest Check-in Active",
             (
                 f"**{self.current_guest_name}** can now check in.\n"
                 f"Code **{self.current_lock_code}** verified on {success_count}/{count} lock(s)."
@@ -532,7 +531,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_update_listeners()
 
         await self._notify_ha(
-            "✅ Guest Check-out Complete",
+            "Γ£à Guest Check-out Complete",
             f"**{guest}**'s code verified cleared on {cleared_count}/{count} lock(s).",
             "ownerrez_checkout",
         )
@@ -556,13 +555,13 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if clear_booking_state:
             self.hass.async_create_task(self.async_refresh())
 
-    # ── Reminder notifications ────────────────────────────────────────────────
+    # ΓöÇΓöÇ Reminder notifications ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     async def _send_24h_reminder(self) -> None:
         if not self.current_guest_name:
             return
         await self._notify_ha(
-            "📅 Guest Checking In Tomorrow",
+            "≡ƒôà Guest Checking In Tomorrow",
             (
                 f"**{self.current_guest_name}** checks in tomorrow.\n"
                 f"Code: **{self.current_lock_code}**"
@@ -575,7 +574,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         t = self.current_checkout.strftime("%I:%M %p")
         await self._notify_ha(
-            "🏁 Guest Checks Out Today",
+            "≡ƒÅü Guest Checks Out Today",
             (
                 f"**{self.current_guest_name}** checks out at {t}.\n"
                 "Lock codes will be disabled automatically."
@@ -583,10 +582,10 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "ownerrez_reminder_checkout",
         )
 
-    # ── Lock listener / arrival handling ─────────────────────────────────────
+    # ΓöÇΓöÇ Lock listener / arrival handling ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     def _register_lock_listener(self) -> None:
-        """Watch the primary lock entity for guest door-open events."""
+        """Watch all configured lock entities for guest door-open events."""
         if self._cancel_lock_listener:
             self._cancel_lock_listener()
             self._cancel_lock_listener = None
@@ -594,13 +593,13 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._cancel_zwave_listener()
             self._cancel_zwave_listener = None
 
-        primary = self._cfg.get(CONF_PRIMARY_LOCK, "")
-        if not primary:
+        watch_entities = [entity_id for entity_id in self.lock_entities if entity_id]
+        if not watch_entities:
             return
 
         entity_reg = er.async_get(self.hass)
         self._lock_device_ids = {}
-        for entity_id in self.lock_entities:
+        for entity_id in watch_entities:
             entry = entity_reg.async_get(entity_id)
             if entry and entry.device_id:
                 self._lock_device_ids[entry.device_id] = entity_id
@@ -614,7 +613,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass.async_create_task(self._handle_arrival(entity_id))
 
         self._cancel_lock_listener = async_track_state_change(
-            self.hass, primary, _on_lock_change
+            self.hass, watch_entities, _on_lock_change
         )
 
         if self.service_type == LOCK_SERVICE_ZWAVE:
@@ -740,8 +739,8 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if notify_svc:
             await self._send_mobile(
                 notify_svc,
-                "🔓 Door Activity",
-                f"{actor} unlocked door\n\n🕐 {now.strftime('%I:%M:%S %p')}",
+                "≡ƒöô Door Activity",
+                f"{actor} unlocked door\n\n≡ƒòÉ {now.strftime('%I:%M:%S %p')}",
                 {"tag": "door_unlock", "group": "guest_activity"},
             )
 
@@ -752,7 +751,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_update_listeners()
 
             await self._notify_ha(
-                "🚪 Guest Arrived",
+                "≡ƒÜ¬ Guest Arrived",
                 (
                     f"**{self.current_guest_name}** unlocked {friendly}.\n\n"
                     f"**Time:** {now.strftime('%I:%M %p')}\n"
@@ -764,11 +763,11 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if notify_svc:
                 await self._send_mobile(
                     notify_svc,
-                    f"🚪 {self.current_guest_name} Arrived",
+                    f"≡ƒÜ¬ {self.current_guest_name} Arrived",
                     (
                         f"Unlocked {friendly}\n\n"
-                        f"🕐 {now.strftime('%I:%M:%S %p')}\n"
-                        f"📅 {now.strftime('%A, %B %d, %Y')}"
+                        f"≡ƒòÉ {now.strftime('%I:%M:%S %p')}\n"
+                        f"≡ƒôà {now.strftime('%A, %B %d, %Y')}"
                     ),
                     {
                         "notification_icon": "mdi:account-check",
@@ -778,19 +777,19 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     },
                 )
 
-    # ── Manual actions (called by buttons / services) ─────────────────────────
+    # ΓöÇΓöÇ Manual actions (called by buttons / services) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     async def activate_code_early(self) -> None:
         """Manually activate guest code before the scheduled check-in time."""
         if not self.current_guest_name or not self.current_lock_code or self.code_active:
-            _LOGGER.warning("OwnerRez: activate_code_early skipped — no pending booking or already active")
+            _LOGGER.warning("OwnerRez: activate_code_early skipped ΓÇö no pending booking or already active")
             return
         await self._do_checkin()
 
     async def clear_guest_code(self) -> None:
         """Manually clear the active guest code."""
         if not self.code_active:
-            _LOGGER.warning("OwnerRez: clear_guest_code skipped — no active code")
+            _LOGGER.warning("OwnerRez: clear_guest_code skipped ΓÇö no active code")
             return
 
         now_local = dt_util.now()
@@ -810,7 +809,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self._do_checkout()
 
-    # ── Internal helpers ──────────────────────────────────────────────────────
+    # ΓöÇΓöÇ Internal helpers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     async def _notify_ha(self, title: str, message: str, notification_id: str) -> None:
         """Create a persistent notification in Home Assistant."""

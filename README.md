@@ -1,6 +1,6 @@
 # OwnerRez Lock Manager for Home Assistant
 
-**Version:** 2.0.5  
+**Version:** 2.0.6  
 [![HACS][hacs-badge]][hacs-url]
 
 Automatically manage smart lock codes for your vacation rental property by syncing booking data from OwnerRez. Lock codes are programmed a configurable number of minutes before guest check-in and automatically removed at checkout — all configured through the Home Assistant UI with no YAML editing required.
@@ -365,7 +365,7 @@ A point-in-time callback is registered for the exact checkout datetime. When it 
 On every HA start and hourly refresh, the integration checks whether the current time falls within an expected active window. If locks should be programmed but aren't (e.g., after an unexpected HA restart), they are programmed automatically.
 
 ### 6. Guest Arrival Detection
-The primary lock entity is watched for state changes to `unlocked` while a guest code is active:
+All configured lock entities are watched for state changes to `unlocked` while a guest code is active:
 - **Every unlock** → logbook entry + mobile door-activity notification (if configured)
 - **First unlock** → HA persistent notification + mobile first-arrival notification
 
@@ -417,6 +417,10 @@ If you previously used `ownerrez_lock_manager.yaml` in your `/config/packages/` 
 ---
 
 ## Changelog
+
+### v2.0.6
+- Updated arrival detection so any configured lock can mark the guest as arrived on first valid unlock use
+- Kept the Z-Wave notification path active so lock user/slot data can still be attributed when available
 
 ### v2.0.5
 - Added a current time/date guard so the coordinator does not switch to or program a future guest before the current guest's checkout time

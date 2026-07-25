@@ -36,6 +36,7 @@ async def async_setup_entry(
             OwnerRezNextGuestNameSensor(coordinator, entry),
             OwnerRezNextCheckinDateSensor(coordinator, entry),
             OwnerRezLocksProgrammedSensor(coordinator, entry),
+            OwnerRezLockProgrammingStatusSensor(coordinator, entry),
             OwnerRezCurrentGuestSensor(coordinator, entry),
             OwnerRezCheckinSensor(coordinator, entry),
             OwnerRezCheckoutSensor(coordinator, entry),
@@ -171,15 +172,62 @@ class OwnerRezLocksProgrammedSensor(_OwnerRezSensor):
 
     @property
     def native_value(self) -> int:
-        if not self.coordinator.code_active:
-            return 0
-        return len(self.coordinator.lock_entities)
+        return self.coordinator.get_lock_programming_status().get("programmed", 0)
 
     @property
     def extra_state_attributes(self) -> dict:
+        status = self.coordinator.get_lock_programming_status()
         return {
-            "locks": self.coordinator.lock_entities if self.coordinator.code_active else [],
+            "locks": self.coordinator.lock_entities,
+            "total_locks": status.get("total", 0),
+            "cleared_locks": status.get("cleared", 0),
+            "unknown_locks": status.get("unknown", 0),
             "code_active": self.coordinator.code_active,
+        }
+
+
+class OwnerRezLockProgrammingStatusSensor(_OwnerRezSensor):
+    """Per-lock programming verification details for dashboards."""
+
+    _attr_name = "OwnerRez Lock Programming Status"
+    _attr_icon = "mdi:clipboard-list"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_lock_programming_status"
+
+    @property
+    def native_value(self) -> str:
+        status = self.coordinator.get_lock_programming_status()
+        total = status.get("total", 0)
+        programmed = status.get("programmed", 0)
+
+        if total == 0:
+            return "no_locks"
+        if programmed == total:
+            return "all_programmed"
+        if programmed == 0:
+            return "none_programmed"
+        return "partial_programmed"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        status = self.coordinator.get_lock_programming_status()
+        details = status.get("details", [])
+
+        per_lock = [
+            f"{item['entity_id']} (slot {item['slot']}): {item['status']} [{item['raw_slot_state']}]"
+            for item in details
+        ]
+
+        return {
+            "summary": f"{status.get('programmed', 0)}/{status.get('total', 0)} programmed",
+            "total_locks": status.get("total", 0),
+            "programmed_locks": status.get("programmed", 0),
+            "cleared_locks": status.get("cleared", 0),
+            "unknown_locks": status.get("unknown", 0),
+            "details": details,
+            "per_lock_status": per_lock,
         }
 
 

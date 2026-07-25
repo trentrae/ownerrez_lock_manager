@@ -1,6 +1,6 @@
 # OwnerRez Lock Manager for Home Assistant
 
-**Version:** 2.0.3  
+**Version:** 2.0.4  
 [![HACS][hacs-badge]][hacs-url]
 
 Automatically manage smart lock codes for your vacation rental property by syncing booking data from OwnerRez. Lock codes are programmed a configurable number of minutes before guest check-in and automatically removed at checkout — all configured through the Home Assistant UI with no YAML editing required.
@@ -63,7 +63,7 @@ Automatically manage smart lock codes for your vacation rental property by synci
 ### Step 2: Install the Integration
 
 1. Search for **OwnerRez Lock Manager** in HACS → Integrations
-2. Open it and install the latest release (**v2.0.2**)
+2. Open it and install the latest release (**v2.0.4**)
 3. **Restart Home Assistant**
 
 ### Step 3: Add the Integration via UI
@@ -80,7 +80,7 @@ Automatically manage smart lock codes for your vacation rental property by synci
 
 When a new version is released, HACS will show an update badge. Click **Update** in HACS and restart HA — no YAML files to touch.
 
-> Already on v2.0.0 or v2.0.1? Updating to **v2.0.2** is in-place through HACS and does not require re-adding the integration.
+> Already on v2.x? Updating to **v2.0.4** is in-place through HACS and does not require re-adding the integration.
 
 ---
 
@@ -258,6 +258,52 @@ entities:
     name: Locks Programmed
 ```
 
+### Lock Programming Health Card (v2.0.4+)
+
+Paste this into a manual card to see lock readiness at a glance and detailed
+per-lock slot verification in one place.
+
+```yaml
+type: vertical-stack
+cards:
+  - type: entities
+    title: 🔐 Lock Programming Health
+    show_header_toggle: false
+    entities:
+      - entity: binary_sensor.ownerrez_all_locks_programmed
+        name: All Locks Programmed
+      - entity: sensor.ownerrez_locks_programmed
+        name: Programmed Lock Count
+      - entity: sensor.ownerrez_lock_programming_status
+        name: Programming Status
+      - type: attribute
+        entity: sensor.ownerrez_lock_programming_status
+        attribute: summary
+        name: Summary
+      - type: attribute
+        entity: sensor.ownerrez_lock_programming_status
+        attribute: programmed_locks
+        name: Programmed
+      - type: attribute
+        entity: sensor.ownerrez_lock_programming_status
+        attribute: total_locks
+        name: Total Locks
+      - type: attribute
+        entity: sensor.ownerrez_lock_programming_status
+        attribute: unknown_locks
+        name: Unknown
+
+  - type: markdown
+    title: Per-Lock Status
+    content: >
+      {% set lines = state_attr('sensor.ownerrez_lock_programming_status', 'per_lock_status') %}
+      {% if lines %}
+      {{ lines | join('\n') }}
+      {% else %}
+      No lock status data yet.
+      {% endif %}
+```
+
 ### Next Booking Card
 
 ```yaml
@@ -371,6 +417,13 @@ If you previously used `ownerrez_lock_manager.yaml` in your `/config/packages/` 
 ---
 
 ## Changelog
+
+### v2.0.4
+- Added retry + verification logic for lock programming at check-in to reduce partial/missed programming on multi-lock setups
+- Added retry + verification logic for lock clearing at checkout, plus short post-checkout re-check passes for locks that still report programmed
+- Updated `sensor.ownerrez_locks_programmed` to report verified programmed count instead of assuming all locks are programmed when active
+- Added `sensor.ownerrez_lock_programming_status` with per-lock status details for dashboard troubleshooting
+- Added `binary_sensor.ownerrez_all_locks_programmed` for at-a-glance dashboard readiness checks
 
 ### v2.0.3
 - Split the active/current booking from the next arriving booking so dashboards can show the upcoming guest during an active stay

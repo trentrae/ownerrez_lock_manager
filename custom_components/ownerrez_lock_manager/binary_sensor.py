@@ -25,7 +25,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: OwnerRezCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([OwnerRezSameDayCheckinBinarySensor(coordinator, entry)])
+    async_add_entities(
+        [
+            OwnerRezSameDayCheckinBinarySensor(coordinator, entry),
+            OwnerRezAllLocksProgrammedBinarySensor(coordinator, entry),
+        ]
+    )
 
 
 class OwnerRezSameDayCheckinBinarySensor(
@@ -86,4 +91,46 @@ class OwnerRezSameDayCheckinBinarySensor(
             "arrival": next_booking.get("arrival", ""),
             "check_in_time": next_booking.get("check_in_time", ""),
             "checkin_datetime": checkin_dt.isoformat() if checkin_dt else None,
+        }
+
+
+class OwnerRezAllLocksProgrammedBinarySensor(
+    CoordinatorEntity[OwnerRezCoordinator], BinarySensorEntity
+):
+    """Binary sensor that is On when all configured lock slots are programmed."""
+
+    _attr_name = "OwnerRez All Locks Programmed"
+    _attr_icon = "mdi:lock-check-outline"
+
+    def __init__(self, coordinator: OwnerRezCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry.entry_id}_all_locks_programmed"
+
+    @property
+    def device_info(self) -> dict:
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name": "OwnerRez Lock Manager",
+            "manufacturer": "OwnerRez",
+            "model": "Lock Manager",
+            "sw_version": VERSION,
+        }
+
+    @property
+    def is_on(self) -> bool:
+        status = self.coordinator.get_lock_programming_status()
+        total = status.get("total", 0)
+        return bool(total > 0 and status.get("programmed", 0) == total)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        status = self.coordinator.get_lock_programming_status()
+        return {
+            "programmed_locks": status.get("programmed", 0),
+            "total_locks": status.get("total", 0),
+            "details": status.get("details", []),
         }

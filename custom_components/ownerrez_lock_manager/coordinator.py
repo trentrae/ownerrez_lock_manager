@@ -54,6 +54,12 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+_SETTLE_DELAY_SECONDS = 2
+_PROGRAM_VERIFY_DELAY_SECONDS = 5
+_LOCK_RETRY_ATTEMPTS = 3
+_POST_CHECKOUT_VERIFY_ATTEMPTS = 5
+_POST_CHECKOUT_VERIFY_INTERVAL_SECONDS = 120
+
 
 class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Manages OwnerRez data, lock programming, and all automation logic."""
@@ -431,31 +437,20 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         locks = self.lock_entities
         slots = self.code_slots
-        svc = self.service_type
         count = min(len(locks), len(slots))
+        success_count = 0
 
         for i in range(count):
             entity, slot = locks[i], slots[i]
             try:
-                if svc == LOCK_SERVICE_ZWAVE:
-                    await self.hass.services.async_call(
-                        "zwave_js", "clear_lock_usercode",
-                        {"entity_id": entity, "code_slot": slot},
-                        blocking=True,
-                    )
-                    # Brief pause between clear and set; Z-Wave commands are queued
-                    # sequentially so 1 s is enough in most cases.
-                    await asyncio.sleep(1)
-                    await self.hass.services.async_call(
-                        "zwave_js", "set_lock_usercode",
-                        {"entity_id": entity, "code_slot": slot, "usercode": self.current_lock_code},
-                        blocking=True,
-                    )
+                programmed = await self._program_lock_slot(entity, slot, self.current_lock_code)
+                if programmed:
+                    success_count += 1
                 else:
-                    await self.hass.services.async_call(
-                        "lock", "set_usercode",
-                        {"entity_id": entity, "code_slot": slot, "usercode": self.current_lock_code},
-                        blocking=True,
+                    _LOGGER.warning(
+                        "OwnerRez: Lock %s slot %s did not verify as programmed after retries",
+                        entity,
+                        slot,
                     )
                 # Small gap between consecutive locks to avoid flooding the mesh
                 if i < count - 1:
@@ -463,7 +458,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("OwnerRez: Failed to program %s slot %s: %s", entity, slot, err)
 
-        self.code_active = True
+        self.code_active = success_count > 0
         self.guest_arrived = False
         await self._save_state()
         self.async_update_listeners()
@@ -472,7 +467,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "🔓 Guest Check-in Active",
             (
                 f"**{self.current_guest_name}** can now check in.\n"
-                f"Code **{self.current_lock_code}** programmed to {count} lock(s)."
+                f"Code **{self.current_lock_code}** verified on {success_count}/{count} lock(s)."
             ),
             "ownerrez_checkin",
         )
@@ -481,24 +476,21 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Clear guest code from all configured locks."""
         locks = self.lock_entities
         slots = self.code_slots
-        svc = self.service_type
         count = min(len(locks), len(slots))
         guest = self.current_guest_name
+        cleared_count = 0
 
         for i in range(count):
             entity, slot = locks[i], slots[i]
             try:
-                if svc == LOCK_SERVICE_ZWAVE:
-                    await self.hass.services.async_call(
-                        "zwave_js", "clear_lock_usercode",
-                        {"entity_id": entity, "code_slot": slot},
-                        blocking=True,
-                    )
+                cleared = await self._clear_lock_slot(entity, slot)
+                if cleared:
+                    cleared_count += 1
                 else:
-                    await self.hass.services.async_call(
-                        "lock", "clear_usercode",
-                        {"entity_id": entity, "code_slot": slot},
-                        blocking=True,
+                    _LOGGER.warning(
+                        "OwnerRez: Lock %s slot %s did not verify as cleared after retries",
+                        entity,
+                        slot,
                     )
                 if i < count - 1:
                     await asyncio.sleep(1)
@@ -517,9 +509,13 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self._notify_ha(
             "✅ Guest Check-out Complete",
-            f"**{guest}**'s code cleared from {count} lock(s).",
+            f"**{guest}**'s code verified cleared on {cleared_count}/{count} lock(s).",
             "ownerrez_checkout",
         )
+
+        # Continue validating clears for a short window after checkout because
+        # some locks apply slot changes slowly over Z-Wave/Zigbee meshes.
+        self.hass.async_create_task(self._post_checkout_verification())
 
         if self.next_booking:
             promoted_booking = self.next_booking
@@ -812,3 +808,176 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_booking": self._serialize_booking(self.next_booking),
             }
         )
+
+    def _slot_state(self, entity_id: str, slot: int) -> str:
+        """Return the raw slot status string for a lock slot."""
+        state = self.hass.states.get(entity_id)
+        if not state:
+            return "unknown"
+        raw = state.attributes.get(f"code_slot_{slot}")
+        if raw is None:
+            return "unknown"
+        return str(raw).strip().lower()
+
+    def _slot_is_cleared(self, entity_id: str, slot: int) -> bool:
+        """Return True when a lock slot appears empty/available."""
+        return self._slot_state(entity_id, slot) in {"available", "empty", "none", ""}
+
+    def _slot_is_programmed(self, entity_id: str, slot: int) -> bool:
+        """Return True when a lock slot appears occupied/programmed."""
+        slot_state = self._slot_state(entity_id, slot)
+        return slot_state not in {"available", "empty", "none", "", "unknown", "unavailable"}
+
+    async def _program_lock_slot(self, entity_id: str, slot: int, code: str) -> bool:
+        """Program a lock slot with retries and post-write verification."""
+        for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
+            if self.service_type == LOCK_SERVICE_ZWAVE:
+                await self.hass.services.async_call(
+                    "zwave_js",
+                    "clear_lock_usercode",
+                    {"entity_id": entity_id, "code_slot": slot},
+                    blocking=True,
+                )
+                await asyncio.sleep(_SETTLE_DELAY_SECONDS)
+                await self.hass.services.async_call(
+                    "zwave_js",
+                    "set_lock_usercode",
+                    {"entity_id": entity_id, "code_slot": slot, "usercode": code},
+                    blocking=True,
+                )
+            else:
+                await self.hass.services.async_call(
+                    "lock",
+                    "clear_usercode",
+                    {"entity_id": entity_id, "code_slot": slot},
+                    blocking=True,
+                )
+                await asyncio.sleep(_SETTLE_DELAY_SECONDS)
+                await self.hass.services.async_call(
+                    "lock",
+                    "set_usercode",
+                    {"entity_id": entity_id, "code_slot": slot, "usercode": code},
+                    blocking=True,
+                )
+
+            await asyncio.sleep(_PROGRAM_VERIFY_DELAY_SECONDS)
+            if self._slot_is_programmed(entity_id, slot):
+                return True
+
+            # Generic lock integrations may not expose per-slot attributes.
+            if self.service_type == LOCK_SERVICE_LOCK and self._slot_state(entity_id, slot) in {
+                "unknown",
+                "unavailable",
+            }:
+                return True
+
+            _LOGGER.debug(
+                "OwnerRez: Program verify failed for %s slot %s on attempt %s/%s (state=%s)",
+                entity_id,
+                slot,
+                attempt,
+                _LOCK_RETRY_ATTEMPTS,
+                self._slot_state(entity_id, slot),
+            )
+
+        return False
+
+    async def _clear_lock_slot(self, entity_id: str, slot: int) -> bool:
+        """Clear a lock slot with retries and post-write verification."""
+        for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
+            if self.service_type == LOCK_SERVICE_ZWAVE:
+                await self.hass.services.async_call(
+                    "zwave_js",
+                    "clear_lock_usercode",
+                    {"entity_id": entity_id, "code_slot": slot},
+                    blocking=True,
+                )
+            else:
+                await self.hass.services.async_call(
+                    "lock",
+                    "clear_usercode",
+                    {"entity_id": entity_id, "code_slot": slot},
+                    blocking=True,
+                )
+
+            await asyncio.sleep(_SETTLE_DELAY_SECONDS)
+            if self._slot_is_cleared(entity_id, slot):
+                return True
+
+            # Generic lock integrations may not expose per-slot attributes.
+            if self.service_type == LOCK_SERVICE_LOCK and self._slot_state(entity_id, slot) in {
+                "unknown",
+                "unavailable",
+            }:
+                return True
+
+            _LOGGER.debug(
+                "OwnerRez: Clear verify failed for %s slot %s on attempt %s/%s (state=%s)",
+                entity_id,
+                slot,
+                attempt,
+                _LOCK_RETRY_ATTEMPTS,
+                self._slot_state(entity_id, slot),
+            )
+
+        return False
+
+    def get_lock_programming_status(self) -> dict[str, Any]:
+        """Return per-lock slot verification data for dashboard sensors."""
+        locks = self.lock_entities
+        slots = self.code_slots
+        count = min(len(locks), len(slots))
+
+        details: list[dict[str, Any]] = []
+        programmed = 0
+        cleared = 0
+        unknown = 0
+
+        for idx in range(count):
+            entity_id = locks[idx]
+            slot = slots[idx]
+            slot_state = self._slot_state(entity_id, slot)
+
+            status = "unknown"
+            if self._slot_is_programmed(entity_id, slot):
+                status = "programmed"
+                programmed += 1
+            elif self._slot_is_cleared(entity_id, slot):
+                status = "cleared"
+                cleared += 1
+            else:
+                unknown += 1
+
+            details.append(
+                {
+                    "entity_id": entity_id,
+                    "slot": slot,
+                    "status": status,
+                    "raw_slot_state": slot_state,
+                }
+            )
+
+        return {
+            "total": count,
+            "programmed": programmed,
+            "cleared": cleared,
+            "unknown": unknown,
+            "details": details,
+        }
+
+    async def _post_checkout_verification(self) -> None:
+        """Retry clear operations for a short time window after checkout."""
+        for _ in range(_POST_CHECKOUT_VERIFY_ATTEMPTS):
+            if self.code_active:
+                return
+
+            status = self.get_lock_programming_status()
+            if status["total"] == 0 or status["cleared"] == status["total"]:
+                return
+
+            for lock in status["details"]:
+                if lock["status"] != "cleared":
+                    await self._clear_lock_slot(lock["entity_id"], int(lock["slot"]))
+
+            self.async_update_listeners()
+            await asyncio.sleep(_POST_CHECKOUT_VERIFY_INTERVAL_SECONDS)

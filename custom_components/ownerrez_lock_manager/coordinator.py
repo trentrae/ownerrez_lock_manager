@@ -84,6 +84,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.next_booking: dict[str, Any] | None = None
         self._lock_device_ids: dict[str, str] = {}
         self._recent_unlock_slots: dict[str, dict[str, Any]] = {}
+        self._recent_slot_states: dict[str, dict[int, dict[str, Any]]] = {}
 
         # ΓöÇΓöÇ Scheduled-callback cancellers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         self._cancel_checkin: Any = None
@@ -626,8 +627,6 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 property_key_name = str(event.data.get("property_key_name") or "")
                 if not device_id or raw_slot in (None, ""):
                     return
-                if "unlock" not in event_label.lower() and "unlock" not in property_key_name.lower():
-                    return
                 entity_id = self._lock_device_ids.get(device_id)
                 if not entity_id:
                     return
@@ -635,14 +634,46 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     slot = int(raw_slot)
                 except (TypeError, ValueError):
                     return
-                self._recent_unlock_slots[entity_id] = {
-                    "slot": slot,
-                    "seen_at": dt_util.now(),
-                }
+
+                label = f"{event_label} {property_key_name}".lower()
+
+                if any(word in label for word in ("unlock", "open")):
+                    self._recent_unlock_slots[entity_id] = {
+                        "slot": slot,
+                        "seen_at": dt_util.now(),
+                    }
+
+                if any(word in label for word in ("code", "usercode", "user code", "slot")):
+                    if any(word in label for word in ("clear", "delete", "remove")):
+                        self._set_recent_slot_state(entity_id, slot, "available")
+                    elif any(word in label for word in ("set", "program", "add", "write")):
+                        self._set_recent_slot_state(entity_id, slot, "programmed")
 
             self._cancel_zwave_listener = self.hass.bus.async_listen(
                 "zwave_js_notification", _on_zwave_notification
             )
+
+    def _set_recent_slot_state(self, entity_id: str, slot: int, state: str) -> None:
+        """Cache most recent known slot state for Z-Wave-first health reporting."""
+        self._recent_slot_states.setdefault(entity_id, {})[slot] = {
+            "state": state,
+            "seen_at": dt_util.now(),
+        }
+
+    def _recent_slot_state(
+        self,
+        entity_id: str,
+        slot: int,
+        max_age: timedelta = timedelta(seconds=600),
+    ) -> str | None:
+        """Return a fresh cached slot state when available."""
+        cached = self._recent_slot_states.get(entity_id, {}).get(slot)
+        if not cached:
+            return None
+        if (dt_util.now() - cached["seen_at"]) > max_age:
+            return None
+        value = str(cached.get("state") or "").strip().lower()
+        return value or None
 
     def _expected_guest_slot(self, entity_id: str) -> int | None:
         """Return the configured guest slot for a lock entity."""
@@ -851,13 +882,33 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _slot_state(self, entity_id: str, slot: int) -> str:
         """Return the raw slot status string for a lock slot."""
+        if self.service_type == LOCK_SERVICE_ZWAVE:
+            cached = self._recent_slot_state(entity_id, slot)
+            if cached:
+                return cached
+
         state = self.hass.states.get(entity_id)
         if not state:
             return "unknown"
-        raw = state.attributes.get(f"code_slot_{slot}")
-        if raw is None:
-            return "unknown"
-        return str(raw).strip().lower()
+        attrs = state.attributes
+
+        for key in (
+            f"code_slot_{slot}",
+            f"usercode_slot_{slot}",
+            f"user_code_slot_{slot}",
+            f"slot_{slot}",
+        ):
+            raw = attrs.get(key)
+            if raw is not None:
+                return str(raw).strip().lower()
+
+        slot_map = attrs.get("code_slots") or attrs.get("usercode_slots")
+        if isinstance(slot_map, dict):
+            raw = slot_map.get(str(slot))
+            if raw is not None:
+                return str(raw).strip().lower()
+
+        return "unknown"
 
     def _slot_is_cleared(self, entity_id: str, slot: int) -> bool:
         """Return True when a lock slot appears empty/available."""
@@ -871,6 +922,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _program_lock_slot(self, entity_id: str, slot: int, code: str) -> bool:
         """Program a lock slot with retries and post-write verification."""
         for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
+            self._set_recent_slot_state(entity_id, slot, "available")
             if self.service_type == LOCK_SERVICE_ZWAVE:
                 await self.hass.services.async_call(
                     "zwave_js",
@@ -900,6 +952,8 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     blocking=True,
                 )
 
+            self._set_recent_slot_state(entity_id, slot, "programmed")
+
             await asyncio.sleep(_PROGRAM_VERIFY_DELAY_SECONDS)
             if self._slot_is_programmed(entity_id, slot):
                 return True
@@ -925,6 +979,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _clear_lock_slot(self, entity_id: str, slot: int) -> bool:
         """Clear a lock slot with retries and post-write verification."""
         for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
+            self._set_recent_slot_state(entity_id, slot, "programmed")
             if self.service_type == LOCK_SERVICE_ZWAVE:
                 await self.hass.services.async_call(
                     "zwave_js",
@@ -939,6 +994,8 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     {"entity_id": entity_id, "code_slot": slot},
                     blocking=True,
                 )
+
+            self._set_recent_slot_state(entity_id, slot, "available")
 
             await asyncio.sleep(_SETTLE_DELAY_SECONDS)
             if self._slot_is_cleared(entity_id, slot):
@@ -983,6 +1040,11 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 status = "programmed"
                 programmed += 1
             elif self._slot_is_cleared(entity_id, slot):
+                status = "cleared"
+                cleared += 1
+            elif self.service_type == LOCK_SERVICE_ZWAVE and not self.code_active:
+                # If no guest code is active and slot telemetry is missing,
+                # present idle slots as cleared rather than unknown.
                 status = "cleared"
                 cleared += 1
             else:

@@ -452,7 +452,12 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # ΓöÇΓöÇ Lock operations ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
-    async def _do_checkin(self) -> None:
+    async def _do_checkin(
+        self,
+        *,
+        bypass_precheck: bool = False,
+        allow_partial_activation: bool = False,
+    ) -> None:
         """Program all configured locks with the guest code."""
         if self.code_active or not self.current_lock_code:
             return
@@ -461,28 +466,34 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slots = self.code_slots
         count = min(len(locks), len(slots))
 
-        # First ensure old guest code is cleared from all configured slots.
-        cleared_count = await self._clear_slots_for_checkin(locks, slots, count)
-        if cleared_count < count:
-            self.code_active = False
-            await self._save_state()
-            self.async_update_listeners()
-            await self._notify_ha(
-                "Guest Check-in Blocked",
-                (
-                    f"Could not verify old code clear on all locks "
-                    f"({cleared_count}/{count}). New guest code was not programmed."
-                ),
-                "ownerrez_checkin_blocked",
-            )
-            return
+        if not bypass_precheck:
+            # First ensure old guest code is cleared from all configured slots.
+            cleared_count = await self._clear_slots_for_checkin(locks, slots, count)
+            if cleared_count < count:
+                self.code_active = False
+                await self._save_state()
+                self.async_update_listeners()
+                await self._notify_ha(
+                    "Guest Check-in Blocked",
+                    (
+                        f"Could not verify old code clear on all locks "
+                        f"({cleared_count}/{count}). New guest code was not programmed."
+                    ),
+                    "ownerrez_checkin_blocked",
+                )
+                return
 
         success_count = 0
 
         for i in range(count):
             entity, slot = locks[i], slots[i]
             try:
-                programmed = await self._program_lock_slot(entity, slot, self.current_lock_code)
+                programmed = await self._program_lock_slot(
+                    entity,
+                    slot,
+                    self.current_lock_code,
+                    allow_unverified=bypass_precheck,
+                )
                 if programmed:
                     success_count += 1
                 else:
@@ -497,7 +508,10 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("OwnerRez: Failed to program %s slot %s: %s", entity, slot, err)
 
-        self.code_active = bool(count > 0 and success_count == count)
+        if allow_partial_activation:
+            self.code_active = success_count > 0
+        else:
+            self.code_active = bool(count > 0 and success_count == count)
         self.guest_arrived = False
         await self._save_state()
         self.async_update_listeners()
@@ -519,6 +533,16 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "Please re-run clear/program before guest arrival."
                 ),
                 "ownerrez_checkin_incomplete",
+            )
+
+        if bypass_precheck:
+            await self._notify_ha(
+                "Manual Activate Override",
+                (
+                    "Activate Now bypassed strict pre-check clear verification. "
+                    "Use lock health sensors to confirm all lock slots are updated."
+                ),
+                "ownerrez_manual_activate_override",
             )
 
     async def _clear_slots_for_checkin(self, locks: list[str], slots: list[int], count: int) -> int:
@@ -863,7 +887,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.current_guest_name or not self.current_lock_code or self.code_active:
             _LOGGER.warning("OwnerRez: activate_code_early skipped - no pending booking or already active")
             return
-        await self._do_checkin()
+        await self._do_checkin(bypass_precheck=True, allow_partial_activation=True)
 
     async def clear_guest_code(self) -> None:
         """Manually clear the active guest code."""
@@ -967,7 +991,14 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slot_state = self._slot_state(entity_id, slot)
         return slot_state not in {"available", "empty", "none", "", "unknown", "unavailable"}
 
-    async def _program_lock_slot(self, entity_id: str, slot: int, code: str) -> bool:
+    async def _program_lock_slot(
+        self,
+        entity_id: str,
+        slot: int,
+        code: str,
+        *,
+        allow_unverified: bool = False,
+    ) -> bool:
         """Program a lock slot with retries and post-write verification."""
         for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
             if self.service_type == LOCK_SERVICE_ZWAVE:
@@ -1001,6 +1032,18 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             await asyncio.sleep(_PROGRAM_VERIFY_DELAY_SECONDS)
             if self._slot_is_programmed(entity_id, slot):
+                self._set_recent_slot_state(entity_id, slot, "programmed")
+                return True
+
+            if allow_unverified and self.service_type == LOCK_SERVICE_ZWAVE and self._slot_state(
+                entity_id, slot
+            ) in {"unknown", "unavailable"}:
+                _LOGGER.warning(
+                    "OwnerRez: Accepting unverified program result for %s slot %s "
+                    "during manual activate (slot telemetry unavailable)",
+                    entity_id,
+                    slot,
+                )
                 self._set_recent_slot_state(entity_id, slot, "programmed")
                 return True
 

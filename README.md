@@ -1,6 +1,6 @@
 # OwnerRez Lock Manager for Home Assistant
 
-**Version:** 2.0.11  
+**Version:** 2.0.12  
 [![HACS][hacs-badge]][hacs-url]
 
 Automatically manage smart lock codes for your vacation rental property by syncing booking data from OwnerRez. Lock codes are programmed a configurable number of minutes before guest check-in and automatically removed at checkout — all configured through the Home Assistant UI with no YAML editing required.
@@ -420,6 +420,10 @@ If you previously used `ownerrez_lock_manager.yaml` in your `/config/packages/` 
 ---
 
 ## Changelog
+
+### v2.0.12
+- Added strict pre-check-in clear verification passes across configured lock slots; check-in programming is now blocked if old codes cannot be verified cleared on all locks
+- Removed optimistic slot-state success marking so `code_active` no longer appears healthy unless programming verification actually succeeds on every lock
 
 ### v2.0.11
 - Improved lock programming health fallback so idle locks without slot telemetry show as cleared instead of unknown when no guest code is active

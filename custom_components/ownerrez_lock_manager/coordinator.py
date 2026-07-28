@@ -58,6 +58,7 @@ _PROGRAM_VERIFY_DELAY_SECONDS = 5
 _LOCK_RETRY_ATTEMPTS = 3
 _POST_CHECKOUT_VERIFY_ATTEMPTS = 5
 _POST_CHECKOUT_VERIFY_INTERVAL_SECONDS = 120
+_PRECHECK_CLEAR_PASSES = 2
 
 
 class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -459,6 +460,23 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         locks = self.lock_entities
         slots = self.code_slots
         count = min(len(locks), len(slots))
+
+        # First ensure old guest code is cleared from all configured slots.
+        cleared_count = await self._clear_slots_for_checkin(locks, slots, count)
+        if cleared_count < count:
+            self.code_active = False
+            await self._save_state()
+            self.async_update_listeners()
+            await self._notify_ha(
+                "Guest Check-in Blocked",
+                (
+                    f"Could not verify old code clear on all locks "
+                    f"({cleared_count}/{count}). New guest code was not programmed."
+                ),
+                "ownerrez_checkin_blocked",
+            )
+            return
+
         success_count = 0
 
         for i in range(count):
@@ -479,7 +497,7 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("OwnerRez: Failed to program %s slot %s: %s", entity, slot, err)
 
-        self.code_active = success_count > 0
+        self.code_active = bool(count > 0 and success_count == count)
         self.guest_arrived = False
         await self._save_state()
         self.async_update_listeners()
@@ -492,6 +510,36 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
             "ownerrez_checkin",
         )
+
+        if success_count < count:
+            await self._notify_ha(
+                "Guest Check-in Incomplete",
+                (
+                    f"Guest code programmed on {success_count}/{count} lock(s). "
+                    "Please re-run clear/program before guest arrival."
+                ),
+                "ownerrez_checkin_incomplete",
+            )
+
+    async def _clear_slots_for_checkin(self, locks: list[str], slots: list[int], count: int) -> int:
+        """Run one or more pre-checkin clear passes and return verified clear count."""
+        for _ in range(_PRECHECK_CLEAR_PASSES):
+            cleared_count = 0
+            for idx in range(count):
+                entity, slot = locks[idx], slots[idx]
+                try:
+                    if await self._clear_lock_slot(entity, slot):
+                        cleared_count += 1
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.error("OwnerRez: Pre-checkin clear failed for %s slot %s: %s", entity, slot, err)
+
+                if idx < count - 1:
+                    await asyncio.sleep(1)
+
+            if cleared_count == count:
+                return cleared_count
+
+        return cleared_count
 
     async def _do_checkout(self, *, clear_booking_state: bool = True, promote_next: bool = True) -> None:
         """Clear guest code from all configured locks."""
@@ -922,7 +970,6 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _program_lock_slot(self, entity_id: str, slot: int, code: str) -> bool:
         """Program a lock slot with retries and post-write verification."""
         for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
-            self._set_recent_slot_state(entity_id, slot, "available")
             if self.service_type == LOCK_SERVICE_ZWAVE:
                 await self.hass.services.async_call(
                     "zwave_js",
@@ -952,10 +999,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     blocking=True,
                 )
 
-            self._set_recent_slot_state(entity_id, slot, "programmed")
-
             await asyncio.sleep(_PROGRAM_VERIFY_DELAY_SECONDS)
             if self._slot_is_programmed(entity_id, slot):
+                self._set_recent_slot_state(entity_id, slot, "programmed")
                 return True
 
             # Generic lock integrations may not expose per-slot attributes.
@@ -979,7 +1025,6 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _clear_lock_slot(self, entity_id: str, slot: int) -> bool:
         """Clear a lock slot with retries and post-write verification."""
         for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
-            self._set_recent_slot_state(entity_id, slot, "programmed")
             if self.service_type == LOCK_SERVICE_ZWAVE:
                 await self.hass.services.async_call(
                     "zwave_js",
@@ -995,10 +1040,9 @@ class OwnerRezCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     blocking=True,
                 )
 
-            self._set_recent_slot_state(entity_id, slot, "available")
-
             await asyncio.sleep(_SETTLE_DELAY_SECONDS)
             if self._slot_is_cleared(entity_id, slot):
+                self._set_recent_slot_state(entity_id, slot, "available")
                 return True
 
             # Generic lock integrations may not expose per-slot attributes.
